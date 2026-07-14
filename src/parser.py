@@ -114,10 +114,11 @@ class CS2DemoParser:
 
     def parse_kills(self, rounds_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Extracts kill events and associates them with round numbers.
+        Extracts kill events and associates them with round numbers and team names.
         """
         try:
-            kills_df = self.parser.parse_event("player_death")
+            # Query custom player property team_num (2 = T, 3 = CT)
+            kills_df = self.parser.parse_event("player_death", player=["team_num"])
         except Exception as e:
             print(f"Error parsing kill events: {e}")
             return pd.DataFrame()
@@ -128,11 +129,21 @@ class CS2DemoParser:
         if not isinstance(kills_df, pd.DataFrame):
             kills_df = pd.DataFrame(kills_df)
 
+        # Map team numbers to T/CT strings
+        if "attacker_team_num" in kills_df.columns:
+            kills_df["attacker_team"] = kills_df["attacker_team_num"].map({2: "T", 3: "CT"}).fillna("unknown")
+        else:
+            kills_df["attacker_team"] = "unknown"
+
+        if "user_team_num" in kills_df.columns:
+            kills_df["user_team"] = kills_df["user_team_num"].map({2: "T", 3: "CT"}).fillna("unknown")
+        else:
+            kills_df["user_team"] = "unknown"
+
         # Ensure essential columns are present
         required_cols = ["tick", "attacker_name", "user_name", "weapon"]
         for col in required_cols:
             if col not in kills_df.columns:
-                # Try to map user_name from victim name / userid if user_name is missing
                 if col == "user_name" and "victim_name" in kills_df.columns:
                     kills_df["user_name"] = kills_df["victim_name"]
                 else:
@@ -164,29 +175,36 @@ class CS2DemoParser:
 
     def parse_bomb_events(self, rounds_df: pd.DataFrame) -> pd.DataFrame:
         """
-        Extracts bomb events (plant, defuse, explode) and associates them with rounds.
+        Extracts bomb events (plant, defuse, explode) and associates them with rounds and teams.
         """
         bomb_dfs = []
         event_types = {
-            "bomb_planted": "plant",
-            "bomb_defused": "defuse",
-            "bomb_exploded": "explode"
+            "bomb_planted": ("plant", "T"),
+            "bomb_defused": ("defuse", "CT"),
+            "bomb_exploded": ("explode", "T")
         }
         
-        for event_name, event_label in event_types.items():
+        for event_name, (event_label, team) in event_types.items():
             try:
                 df = self.parser.parse_event(event_name)
                 if not df.empty:
                     if not isinstance(df, pd.DataFrame):
                         df = pd.DataFrame(df)
                     df["event_type"] = event_label
-                    bomb_dfs.append(df[["tick", "event_type", "user_name", "site"]])
+                    df["user_team"] = team
+                    
+                    # Ensure site and user_name are present (explode might not contain them)
+                    if "site" not in df.columns:
+                        df["site"] = None
+                    if "user_name" not in df.columns:
+                        df["user_name"] = None
+                        
+                    bomb_dfs.append(df[["tick", "event_type", "user_name", "user_team", "site"]])
             except Exception:
-                # Event might not be present or named differently in some demos
                 continue
                 
         if not bomb_dfs:
-            return pd.DataFrame(columns=["tick", "event_type", "user_name", "site", "round_number"])
+            return pd.DataFrame(columns=["tick", "event_type", "user_name", "user_team", "site", "round_number"])
             
         bomb_df = pd.concat(bomb_dfs, ignore_index=True).sort_values("tick").reset_index(drop=True)
         

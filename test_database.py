@@ -70,7 +70,7 @@ def main():
     print("\n=== Reloaded Rounds Timeline ===")
     print(cache_rounds.to_string(index=False))
     print("\n=== Reloaded Kills Details (First 5) ===")
-    print(cache_kills[["tick", "round_number", "attacker_name", "user_name", "weapon", "headshot"]].head(5).to_string(index=False))
+    print(cache_kills[["tick", "round_number", "attacker_name", "attacker_team", "user_name", "user_team", "weapon", "headshot"]].head(5).to_string(index=False))
     
     print("\n==================================================")
     print("PERFORMANCE RATIO: PARSE VS DATABASE LOAD")

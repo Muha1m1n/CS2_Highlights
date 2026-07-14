@@ -42,7 +42,9 @@ class KillModel(Base):
     round_number = Column(Integer, nullable=False)
     tick = Column(Integer, nullable=False)
     attacker_name = Column(String(128), nullable=True)
-    user_name = Column(String(128), nullable=True)  # Victim
+    attacker_team = Column(String(10), nullable=True)  # 'CT' or 'T'
+    user_name = Column(String(128), nullable=True)       # Victim name
+    user_team = Column(String(10), nullable=True)      # Victim team ('CT' or 'T')
     weapon = Column(String(64), nullable=True)
     headshot = Column(Boolean, default=False)
     noscope = Column(Boolean, default=False)
@@ -58,8 +60,9 @@ class BombEventModel(Base):
     match_hash = Column(String(64), ForeignKey("matches.sha256"), nullable=False)
     round_number = Column(Integer, nullable=False)
     tick = Column(Integer, nullable=False)
-    event_type = Column(String(32), nullable=False)  # plant, defuse, explode
+    event_type = Column(String(32), nullable=False)    # plant, defuse, explode
     user_name = Column(String(128), nullable=True)
+    user_team = Column(String(10), nullable=True)      # 'CT' or 'T'
     site = Column(String(32), nullable=True)
     
     match = relationship("MatchModel", back_populates="bomb_events")
@@ -70,7 +73,6 @@ class CS2Database:
     SQLAlchemy database wrapper for managing SQLite caching of parsed CS2 demo files.
     """
     def __init__(self, db_path: str = "data/processed/matches.db"):
-        # Ensure target directory exists
         db_dir = os.path.dirname(db_path)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
@@ -125,7 +127,7 @@ class CS2Database:
                 demo_path=demo_path
             )
             session.add(match_record)
-            session.flush() # Flush to lock foreign keys
+            session.flush()
             
             # 1. Rounds
             round_records = []
@@ -151,7 +153,9 @@ class CS2Database:
                         round_number=int(row["round_number"]),
                         tick=int(row["tick"]),
                         attacker_name=str(row["attacker_name"]) if not pd.isna(row["attacker_name"]) else None,
+                        attacker_team=str(row["attacker_team"]) if not pd.isna(row["attacker_team"]) else None,
                         user_name=str(row["user_name"]) if not pd.isna(row["user_name"]) else None,
+                        user_team=str(row["user_team"]) if not pd.isna(row["user_team"]) else None,
                         weapon=str(row["weapon"]) if not pd.isna(row["weapon"]) else None,
                         headshot=bool(row["headshot"]),
                         noscope=bool(row["noscope"]),
@@ -170,6 +174,7 @@ class CS2Database:
                         tick=int(row["tick"]),
                         event_type=str(row["event_type"]),
                         user_name=str(row["user_name"]) if not pd.isna(row["user_name"]) else None,
+                        user_team=str(row["user_team"]) if not pd.isna(row["user_team"]) else None,
                         site=str(row["site"]) if not pd.isna(row["site"]) else None
                     ))
                 session.bulk_save_objects(bomb_records)
@@ -216,7 +221,9 @@ class CS2Database:
                 "tick": k.tick,
                 "round_number": k.round_number,
                 "attacker_name": k.attacker_name,
+                "attacker_team": k.attacker_team,
                 "user_name": k.user_name,
+                "user_team": k.user_team,
                 "weapon": k.weapon,
                 "headshot": k.headshot,
                 "noscope": k.noscope,
@@ -232,11 +239,12 @@ class CS2Database:
                 "round_number": b.round_number,
                 "event_type": b.event_type,
                 "user_name": b.user_name,
+                "user_team": b.user_team,
                 "site": b.site
             } for b in bombs]
             bomb_df = pd.DataFrame(bombs_list)
             if bomb_df.empty:
-                bomb_df = pd.DataFrame(columns=["tick", "round_number", "event_type", "user_name", "site"])
+                bomb_df = pd.DataFrame(columns=["tick", "round_number", "event_type", "user_name", "user_team", "site"])
                 
             return meta, rounds_df, kills_df, bomb_df
         finally:
