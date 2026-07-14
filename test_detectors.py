@@ -45,7 +45,7 @@ def main():
     
     # Run Detector Engine (Layer 3)
     print("\n--- Running Highlight Detection Engine (Layer 3) ---")
-    detector = CS2DetectorEngine()
+    detector = CS2DetectorEngine(db_path=db_path)
     start_detect = time.time()
     moments = detector.detect_all(rounds_df, kills_df, bomb_df, meta["tick_rate"])
     detect_time = time.time() - start_detect

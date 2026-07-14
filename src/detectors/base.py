@@ -13,11 +13,12 @@ class CandidateMoment:
     base_score: float
     skill_bonus: float
     description: str
+    ml_boost: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     @property
     def total_score(self) -> float:
-        return self.base_score + self.skill_bonus
+        return self.base_score + self.skill_bonus + self.ml_boost
 
 class AbstractDetector(ABC):
     """
