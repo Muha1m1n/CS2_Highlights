@@ -1,0 +1,23 @@
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Replay binaries (we parse directly from Steam replays folder)
+*.dem
+Demo_Data/*.dem
+
+# SQLite Databases & Cache
+*.db
+*.sqlite
+
+# Environment Variables
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# System generated artifacts
+.gemini/
+.system_generated/
