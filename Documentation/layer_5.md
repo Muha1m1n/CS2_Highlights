@@ -97,6 +97,19 @@ if player_name:
 ```
 * **`restore_normal_hud()`**: Sends `cl_draw_only_deathnotices 0`, `spec_show_xray 1`, `r_show_demo_ui 1` to restore standard spectator UI once recording concludes.
 
+### Step 3: OBS Studio Controller (`src/obs_controller.py`)
+
+To control video recording precisely when CS2 demo playback reaches a highlight interval, we built the `OBSController` class wrapping the `obswebsocket` WebSocket v5 API (`localhost:4455`).
+
+#### Core Methods & Capabilities:
+* **`connect(max_retries=3)`**: Connects via WebSocket to OBS Studio and retrieves version info (`requests.GetVersion()`).
+* **`get_record_status()`**: Calls `requests.GetRecordStatus()` to check `{"is_recording": bool, "is_paused": bool, "timecode": str}`.
+* **`get_record_directory()`**: Calls `requests.GetRecordDirectory()` to find the absolute path where OBS saves video output (e.g., `C:\Users\snoop\Videos`).
+* **`start_recording()`**: Sends `requests.StartRecord()` and verifies that `output_active` becomes `True`.
+* **`stop_recording(wait_for_file_flush=True, timeout=10.0)`**:
+  Commands OBS to `StopRecord()`. If `wait_for_file_flush` is enabled, polls OBS status until `output_active` turns `False` and allows a 1-second filesystem release window. This prevents `PermissionError` when moving or renaming the file immediately after recording stops.
+* **`find_latest_recording(extensions=('mp4', 'mkv', 'mov'))`**: Scans `get_record_directory()` using `glob` and `os.path.getmtime` to automatically locate the exact `.mp4` video file just produced by OBS Studio so the automated loop can rename it cleanly.
+
 ### Step 4: Master Automated Loop (`src/autocapture_engine.py`)
 When the user clicks *"Automated Capture"* for a playlist of highlights:
 1. **Pre-roll Warmup**: Python sends `demo_goto <start_tick - 64>` (1 second prior) to allow textures and character models to fully render.
