@@ -163,3 +163,4 @@ Asynchronous background worker queue (`threading.Thread` + `queue.Queue`) design
 | `src/obs_controller.py` | ✅ **Complete** | OBS Studio controller for starting/stopping recordings and checking paths. | `obswebsocket` |
 | `src/autocapture_engine.py` | ✅ **Complete** | Master coordinator loop automating CS2 playback and OBS capture. | `CS2NetCon`, `OBSController` |
 | `src/clipper.py` | ✅ **Complete** | FFmpeg stream-copy clipper and asynchronous background task queue. | `subprocess`, `threading`, `queue` |
+| `test_layer_5.py` | ✅ **Complete** | Comprehensive unit test suite verifying anchor calibration, duck-typing, and queue lifecycle. | `unittest` |
