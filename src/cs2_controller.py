@@ -49,14 +49,18 @@ class CS2NetCon:
             print("[CS2NetCon] CS2 process (`cs2.exe`) is already running.")
             return True
 
-        print(f"[CS2NetCon] Launching CS2 with `-netconport {self.port}` via Steam...")
+        print(f"[CS2NetCon] Launching CS2 with `-insecure -console -netconport {self.port}` via Steam AppLaunch...")
         try:
-            # Launch CS2 using Steam protocol handler
-            launch_url = f"steam://run/730//-netconport {self.port}"
-            if sys.platform == "win32":
-                os.startfile(launch_url)
+            # Check if direct Steam executable exists to use -applaunch (avoids permanent launch option edits)
+            steam_exe = r"C:\Program Files (x86)\Steam\steam.exe"
+            if sys.platform == "win32" and os.path.exists(steam_exe):
+                subprocess.Popen([steam_exe, "-applaunch", "730", "-insecure", "-console", "-netconport", str(self.port)])
             else:
-                subprocess.Popen(["xdg-open", launch_url])
+                launch_url = f"steam://run/730//-insecure -console -netconport {self.port}"
+                if sys.platform == "win32":
+                    os.startfile(launch_url)
+                else:
+                    subprocess.Popen(["xdg-open", launch_url])
             
             print(f"[CS2NetCon] Waiting up to {wait_seconds}s for CS2 window to boot...")
             start_time = time.time()
@@ -140,11 +144,16 @@ class CS2NetCon:
                 finally:
                     self.sock.settimeout(self.timeout)
             return output.strip()
+        except (ConnectionAbortedError, ConnectionResetError, OSError) as sock_err:
+            print(f"[CS2NetCon] Socket disconnected while sending `{command}` ({sock_err}). Cleanly updating connection status.")
+            self.connected = False
+            self.sock = None
+            return ""
         except Exception as e:
             print(f"[CS2NetCon ERROR] Failed to send command `{command}`: {e}")
             self.connected = False
             self.sock = None
-            raise
+            return ""
 
     # =========================================================================
     # DEMO PLAYBACK & NAVIGATION COMMANDS
@@ -196,21 +205,49 @@ class CS2NetCon:
         - Hides the bottom demo scrubber control bar (`r_show_demo_ui 0`).
         - Optionally locks camera to `player_name` in First-Person view (`spec_mode 1`).
         """
-        print("[CS2NetCon] Applying cinematic HUD settings (Killfeed only, No X-Ray)...")
+        print("[CS2NetCon] Applying spectator HUD settings (Player Profile visible, No X-Ray, Hidden Demo UI)...")
         commands = [
             "sv_cheats 1",                   # Required for some offline demo UI tweaks
-            "cl_draw_only_deathnotices 1",   # Hides all HUD except top-right killfeed + crosshair
-            "spec_show_xray 0",              # Disables X-Ray player outlines through walls
-            "r_show_demo_ui 0",              # Hides the Shift+F2 demo playback menu bar
+            "cl_draw_only_deathnotices 0",   # 0 = Keeps player profile, ammo, health, weapon & avatars VISIBLE
+            "cl_drawhud 1",                  # Ensure HUD panels are enabled
+            "spec_show_xray 0",              # Disables X-Ray player outlines through walls for authentic feel
+            "demoui false",                  # Hides demo timeline UI (user requested exact command)
+            "demoui 0",                      # Fallback format
+            "demo_ui_mode 0",                # Source 2 timeline playbar hide command
+            "r_show_demo_ui 0",              # Legacy hide command
+            "cl_spec_show_bindings 0",       # Hides "[G]: Enable Mouse... [SPACE]: Next Camera" hints
             "demo_timescale 1.0",            # Ensure normal speed
         ]
         
         if player_name:
             commands.append("spec_mode 1")                         # Lock to 1st-person camera
-            commands.append(f'spec_player_by_name "{player_name}"') # Lock view to target player
+            commands.append(f'spec_player "{player_name}"')        # Lock view to target player by exact name string
+            commands.append(f"spec_player {player_name}")          # Fallback without quotes
         
         for cmd in commands:
             self.send_command(cmd)
+
+    def lock_camera_to_player(self, player_name: str):
+        """
+        Locks spectator camera directly into `player_name`'s First-Person (In-Eye / POV) view.
+        Sends Source 2 `spec_player` across 6 pulses while ticking to ensure exact POV lock.
+        Also sends `demoui false` on every pulse to ensure any tick jump or camera switch
+        does not pop open the bottom demo playback scrubber bar (`Demo UI`).
+        """
+        if not player_name:
+            return
+        print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (and suppressing Demo UI playbar)...")
+        for _ in range(6):
+            self.send_command("spec_mode 1")                         # First person POV
+            self.send_command(f'spec_player "{player_name}"')        # Lock view with quotes
+            self.send_command(f"spec_player {player_name}")          # Lock view without quotes
+            self.send_command("demoui false")                        # Exact user command to hide demo UI
+            self.send_command("demoui 0")                            # Fallback demo UI toggle off
+            self.send_command("demo_ui_mode 0")                      # Source 2 timeline playbar hide command
+            self.send_command("r_show_demo_ui 0")                    # Legacy hide command
+            self.send_command("cl_spec_show_bindings 0")             # Hide spectator keybinding hints
+            self.send_command("spec_mode 1")                         # Re-assert first person after slot/name selection
+            time.sleep(0.3)
 
     def restore_normal_hud(self):
         """Restores standard HUD, X-Ray, and Demo control menus."""
@@ -219,6 +256,8 @@ class CS2NetCon:
             "cl_draw_only_deathnotices 0",
             "spec_show_xray 1",
             "r_show_demo_ui 1",
+            "demo_ui_mode 2",
+            "cl_spec_show_bindings 1",
         ]
         for cmd in commands:
             self.send_command(cmd)

@@ -78,6 +78,28 @@ class OBSController:
         self.connected = False
         print("[OBSController] Disconnected from OBS Studio.")
 
+    def set_1080p_60fps(self) -> bool:
+        """
+        Enforces 1080p (1920x1080) at 60 FPS recording settings on OBS Studio.
+        """
+        if not self.connected or not self.client:
+            if not self.connect(max_retries=1):
+                return False
+        try:
+            self.client.call(requests.SetVideoSettings(
+                baseWidth=1920,
+                baseHeight=1080,
+                outputWidth=1920,
+                outputHeight=1080,
+                fpsNumerator=60,
+                fpsDenominator=1
+            ))
+            print("[OBSController] Recording resolution enforced: 1920x1080 (1080p) @ 60 FPS.")
+            return True
+        except Exception as e:
+            print(f"[OBSController WARNING] Could not set 1080p resolution ({e}). Using existing OBS settings.")
+            return False
+
     def get_record_status(self) -> Dict[str, Any]:
         """
         Returns current OBS recording status:

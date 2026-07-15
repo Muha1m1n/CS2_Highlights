@@ -49,20 +49,32 @@ class AutoCaptureEngine:
     def connect_all(self, launch_cs2_if_closed: bool = True) -> bool:
         """
         Verifies and establishes connections to both OBS Studio and CS2 NetCon.
-        If CS2 is closed and `launch_cs2_if_closed` is True, boots CS2 automatically.
+        If OBS Studio or CS2 is closed, boots them automatically via subprocess/Steam.
         """
         print("[AutoCaptureEngine] Verifying OBS Studio WebSocket connection...")
-        if not self.obs.connect(max_retries=2):
-            print("[AutoCaptureEngine ERROR] Cannot start capture: OBS Studio is not connected.")
-            return False
+        if not self.obs.connect(max_retries=1):
+            print("[AutoCaptureEngine] OBS Studio not detected. Attempting to launch `obs64.exe`...")
+            obs_path = r"C:\Program Files\obs-studio\bin\64bit\obs64.exe"
+            obs_dir = r"C:\Program Files\obs-studio\bin\64bit"
+            if os.path.exists(obs_path):
+                try:
+                    import subprocess
+                    subprocess.Popen([obs_path], cwd=obs_dir)
+                    print("[AutoCaptureEngine] Launched `obs64.exe`. Waiting 7 seconds for WebSocket server...")
+                    time.sleep(7.0)
+                except Exception as e:
+                    print(f"[AutoCaptureEngine ERROR] Could not launch OBS: {e}")
+            if not self.obs.connect(max_retries=6, retry_delay=1.5):
+                print("[AutoCaptureEngine ERROR] Cannot start capture: OBS Studio is not connected.")
+                return False
 
         print("[AutoCaptureEngine] Verifying CS2 NetCon TCP connection...")
         if not self.cs2.connect(max_retries=2):
             if launch_cs2_if_closed:
                 print("[AutoCaptureEngine] Attempting to boot CS2 via Steam...")
-                if self.cs2.launch_cs2_if_needed(wait_seconds=20):
+                if self.cs2.launch_cs2_if_needed(wait_seconds=30):
                     time.sleep(3.0)  # Extra buffer for TCP console to open
-                    if not self.cs2.connect(max_retries=3):
+                    if not self.cs2.connect(max_retries=15, retry_delay=2.0):
                         return False
                 else:
                     return False
@@ -77,6 +89,10 @@ class AutoCaptureEngine:
         self.cs2.disconnect()
         self.obs.disconnect()
         print("[AutoCaptureEngine] Disconnected from all controllers.")
+
+    def disconnect(self):
+        """Alias for disconnect_all()."""
+        self.disconnect_all()
 
     def _extract_attr(self, item: Any, attr_name: str, default: Any = None) -> Any:
         """Helper to extract attribute from either CandidateMoment object or dict."""
@@ -133,8 +149,13 @@ class AutoCaptureEngine:
         if self.current_loaded_demo != clean_demo_path:
             self.cs2.play_demo(clean_demo_path)
             self.current_loaded_demo = clean_demo_path
-            print("[AutoCaptureEngine] Waiting 6s for Source 2 demo engine to load entities...")
-            time.sleep(6.0)
+            print("[AutoCaptureEngine] Waiting for Source 2 demo level (`levelload`) to finish loading...")
+            for _ in range(25):
+                time.sleep(1.0)
+                st = self.cs2.send_command("status", read_response=True)
+                if st and "levelload" not in st and ("map" in st or "DEMO" in st or "game" in st):
+                    break
+            time.sleep(2.0)  # Buffer after level settle before teleporting
 
         # 3. Teleport to warmup tick and pause
         print(f"[AutoCaptureEngine] Teleporting demo to warmup tick {actual_start}...")
@@ -146,7 +167,8 @@ class AutoCaptureEngine:
         self.cs2.setup_cinematic_hud(player_name=player_name if player_name else None)
         time.sleep(0.5)
 
-        # 5. Start OBS Recording
+        # 5. Enforce 1080p 60FPS & Start OBS Recording
+        self.obs.set_1080p_60fps()
         print("[AutoCaptureEngine] Rolling camera (Start OBS Recording)...")
         if not self.obs.start_recording():
             print("[AutoCaptureEngine ERROR] Failed to trigger OBS recording.")
@@ -155,9 +177,18 @@ class AutoCaptureEngine:
         # 6. Resume normal 1.0x playback
         print(f"[AutoCaptureEngine] Resuming game playback for {duration_sec:.1f} seconds...")
         self.cs2.resume_demo()
+        time.sleep(0.4)  # Allow Source 2 to render unpaused frames before switching camera
+
+        # Enforce 1st-person POV lock on target player and force close bottom demo timeline playbar
+        if player_name:
+            self.cs2.lock_camera_to_player(player_name)
+        self.cs2.send_command("demoui false")                # Force hide demo UI (exact command)
+        self.cs2.send_command("demo_ui_mode 0")              # Fallback hide playbar
+        self.cs2.send_command("cl_draw_only_deathnotices 0") # Keep player profile visible
+        self.cs2.send_command("cl_drawhud 1")                # Ensure HUD is enabled
 
         # Sleep for exact clip duration
-        time.sleep(duration_sec)
+        time.sleep(duration_sec - 0.4)
 
         # 7. Stop Recording & Pause Demo
         print("[AutoCaptureEngine] Highlight finished! Stopping OBS camera...")
@@ -243,9 +274,72 @@ class AutoCaptureEngine:
 
 
 if __name__ == "__main__":
-    print("=== AutoCaptureEngine Standalone Test ===")
-    engine = AutoCaptureEngine(output_dir="clips_test")
-    print(f" -> Output Folder: {engine.output_dir}")
+    import argparse
+    import sqlite3
+
+    parser = argparse.ArgumentParser(description="AutoCaptureEngine CLI - Record CS2 Highlights")
+    parser.add_argument("--demo", default=r"C:/Program Files (x86)/Steam/steamapps/common/Counter-Strike Global Offensive/game/csgo/replays/match730_003831047039177720673_1229901627_382.dem", help="Path to demo file")
+    parser.add_argument("--player", default="log1c", help="Target player substring to record")
+    parser.add_argument("--top", type=int, default=1, help="Number of top scoring clips to capture")
+    parser.add_argument("--output", default="clips", help="Output directory for MP4 clips")
+    args = parser.parse_args()
+
+    print(f"=== AutoCaptureEngine CLI: Capturing Top {args.top} clip(s) for `{args.player}` ===")
+    
+    # Check database or create candidate candidate dictionary
+    # We query all candidate moments matching player_name or fall back to high score check
+    try:
+        from src.detectors.base import CandidateMoment
+        from src.database import CS2Database
+        from src.detectors.multikill import MultiKillDetector
+        from src.detectors.clutch import ClutchDetector
+        from src.detectors.skill import SkillDetector
+        from src.ml_model import CS2WinProbabilityModel
+
+        db = CS2Database("data/processed/test_matches.db")
+        match_data = db.load_match_data("8c3d49085e289a2513a7c211962af8f98864ed8388d5552659a77554b0a8972b")
+        
+        detectors = [MultiKillDetector(), ClutchDetector(), SkillDetector()]
+        all_candidates = []
+        for d in detectors:
+            all_candidates.extend(d.detect(match_data))
+            
+        model = CS2WinProbabilityModel()
+        model.load_model("data/processed/win_prob_rf.pkl")
+        all_candidates = model.rank_moments(all_candidates, match_data)
+        
+        # Filter for our target player
+        player_cands = [c for c in all_candidates if args.player.lower() in c.player_name.lower()]
+        print(f" -> Found {len(player_cands)} detected moments for `{args.player}` in match.")
+    except Exception as e:
+        print(f"[CLI fallback] Could not run ML ranking: {e}. Using direct DB query...")
+        player_cands = []
+
+    if not player_cands:
+        # Direct DB high score fallback if no ranked objects found
+        conn = sqlite3.connect("data/processed/test_matches.db")
+        c = conn.cursor()
+        row = c.execute("""
+            SELECT round_number, min(tick), max(tick), count(*) as kills
+            FROM kills WHERE attacker_name LIKE ? GROUP BY round_number ORDER BY kills DESC LIMIT 1
+        """, (f"%{args.player}%",)).fetchone()
+        conn.close()
+        if row:
+            player_cands = [{
+                "start_tick": row[1] - 64,
+                "end_tick": row[2] + 128,
+                "player_name": args.player,
+                "description": f"{args.player} Round {row[0]} ({row[3]} Kills High Score)",
+                "round_num": row[0]
+            }]
+
+    if not player_cands:
+        print(f"[ERROR] No highlights or kills found for player `{args.player}`.")
+        sys.exit(1)
+
+    top_clips = player_cands[:args.top]
+    engine = AutoCaptureEngine(output_dir=args.output)
+    engine.capture_playlist(demo_path=args.demo, candidates=top_clips, match_title=f"{args.player}_Best")
     print(f" -> CS2 Host: {engine.cs2.host}:{engine.cs2.port}")
     print(f" -> OBS Host: {engine.obs.host}:{engine.obs.port}")
     print("To run a live capture test, ensure OBS Studio is open and call `engine.capture_playlist()`.")
