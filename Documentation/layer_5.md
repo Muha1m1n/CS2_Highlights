@@ -60,29 +60,42 @@ The automated pipeline synchronizes two standalone applications using local netw
 - Connects to OBS Studio on port `4455` to verify authentication and check active recording status (`requests.GetRecordStatus()`).
 
 ### Step 2: CS2 NetCon Controller (`src/cs2_controller.py`)
-Counter-Strike 2 supports a local TCP console interface when launched with the flag `-netconport 2121`. Python establishes a socket connection to `localhost:2121` to execute game commands in real time:
-- `playdemo <path_to_demo>`: Loads the target `.dem` file.
-- `demo_goto <tick>`: Teleports the demo engine to a specific tick.
-- `demo_pause` / `demo_resume`: Controls playback flow.
-- `demo_timescale 1.0`: Ensures normal `1.0x` speed during recording.
 
-### Step 3: Cinematic UI Configuration
-To ensure clean, esports-grade video highlights without visual clutter, Python sends the following console commands right before recording begins:
+Counter-Strike 2 supports a local TCP console interface when launched with the flag `-netconport 2121`. Python establishes a socket connection to `localhost:2121` to execute game commands and automate playback in real time.
 
-```bash
-# 1. Hide radar, weapon inventory, health/ammo bars; keep ONLY top-right killfeed
-cl_draw_only_deathnotices 1
+We implemented the `CS2NetCon` class inside `src/cs2_controller.py` with the following core capabilities:
 
-# 2. Lock camera to First-Person View of the active highlight player
-spec_mode 1
-spec_player_by_name "<player_name>"
+#### 1. Process Management & Automatic Game Launching
+* **`is_cs2_running()`**: Checks `psutil` process list to see if `cs2.exe` is currently running.
+* **`launch_cs2_if_needed(wait_seconds=15)`**: If CS2 is not open, automatically launches it using the Steam protocol (`steam://run/730//-netconport 2121`) and waits for the game engine TCP port to open.
 
-# 3. Disable X-Ray (wallhacks) for authentic live-gameplay feel
-spec_show_xray 0
+#### 2. Socket Connection & Command Execution
+* **`connect(max_retries=5, retry_delay=2.0)`**: Opens `socket.SOCK_STREAM` to `127.0.0.1:2121` with retry logic.
+* **`disconnect()`**: Cleanly closes the TCP socket when recording finishes.
+* **`send_command(command, read_response=False)`**: Sends raw UTF-8 encoded console commands (`command + "\n"`).
 
-# 4. Hide the bottom demo scrubber menu (Shift + F2 UI)
-r_show_demo_ui 0
+#### 3. Demo Playback & Navigation API
+* **`play_demo(demo_path)`**: Converts absolute paths to forward slashes and sends `playdemo "<path>"`.
+* **`goto_tick(tick, relative=False)`**: Teleports demo playback to exact ticks via `demo_goto <tick>`.
+* **`pause_demo()` / `resume_demo()`**: Controls play/pause states (`demo_pause`, `demo_resume`).
+* **`set_timescale(scale=1.0)`**: Sets `demo_timescale <scale>` (`1.0` for real-time video capture, `10.0` for fast-forward).
+
+#### 4. Cinematic UI & HUD Configuration (`setup_cinematic_hud`)
+To ensure clean, esports-grade video highlights without visual clutter, `setup_cinematic_hud(player_name)` sends the following exact command sequence right before recording starts:
+
+```python
+commands = [
+    "sv_cheats 1",                   # Required for offline demo UI adjustments
+    "cl_draw_only_deathnotices 1",   # Hides radar, inventory, health bars; keeps ONLY top-right killfeed
+    "spec_show_xray 0",              # Disables X-Ray wallhacks for an authentic live-gameplay feel
+    "r_show_demo_ui 0",              # Hides the bottom demo scrubber menu bar (Shift + F2 UI)
+    "demo_timescale 1.0",            # Guarantees exact 1.0x playback speed
+]
+if player_name:
+    commands.append("spec_mode 1")                         # Locks to 1st-person camera
+    commands.append(f'spec_player_by_name "{player_name}"') # Locks view directly to target player
 ```
+* **`restore_normal_hud()`**: Sends `cl_draw_only_deathnotices 0`, `spec_show_xray 1`, `r_show_demo_ui 1` to restore standard spectator UI once recording concludes.
 
 ### Step 4: Master Automated Loop (`src/autocapture_engine.py`)
 When the user clicks *"Automated Capture"* for a playlist of highlights:
