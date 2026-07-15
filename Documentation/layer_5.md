@@ -111,13 +111,22 @@ To control video recording precisely when CS2 demo playback reaches a highlight 
 * **`find_latest_recording(extensions=('mp4', 'mkv', 'mov'))`**: Scans `get_record_directory()` using `glob` and `os.path.getmtime` to automatically locate the exact `.mp4` video file just produced by OBS Studio so the automated loop can rename it cleanly.
 
 ### Step 4: Master Automated Loop (`src/autocapture_engine.py`)
-When the user clicks *"Automated Capture"* for a playlist of highlights:
-1. **Pre-roll Warmup**: Python sends `demo_goto <start_tick - 64>` (1 second prior) to allow textures and character models to fully render.
-2. **Pause & Prep**: Sends `demo_pause` and applies the cinematic UI settings.
-3. **Trigger Recording**: Tells OBS via WebSocket to `StartRecord`.
-4. **Playback**: Sends `demo_goto <start_tick>` followed immediately by `demo_resume`.
-5. **Sleep**: Python calculates exact clip duration $D = (end\_tick - start\_tick) / 64.0$ and sleeps for exactly $D$ seconds.
-6. **Stop & Organize**: Tells OBS to `StopRecord`, pauses CS2, and renames the generated output video to `clips/Match_1_Highlight_1_Clutch_3v1.mp4`.
+
+To synchronize Counter-Strike 2 demo playback (`CS2NetCon` on port 2121) and OBS Studio screen capture (`OBSController` on port 4455) into a single, fully automated pipeline, we built the `AutoCaptureEngine` class inside `src/autocapture_engine.py`.
+
+#### Core Methods & Lifecycle:
+* **`connect_all(launch_cs2_if_closed=True)`**: Connects to both OBS WebSocket and CS2 NetCon TCP. If `launch_cs2_if_closed` is active and `cs2.exe` is closed, automatically boots the game via Steam and waits for the socket to accept connections.
+* **`disconnect_all()`**: Safely closes both controller connections upon batch completion.
+* **`capture_highlight(demo_path, candidate, match_title, clip_index, warmup_ticks=64, cooldown_ticks=128)`**:
+  Executes the precise, synchronized recording workflow for a single candidate highlight (supports both `CandidateMoment` dataclasses and dictionaries):
+  1. **Demo Load Check**: If `demo_path` differs from `current_loaded_demo`, issues `playdemo "<path>"` and allows a 6-second Source 2 entity loading window.
+  2. **Warmup Teleport**: Calculates `actual_start = max(0, start_tick - warmup_ticks)` (default 1.0s buffer) to ensure models and textures are rendered before recording. Issues `demo_goto <actual_start>` and `demo_pause`.
+  3. **Cinematic HUD**: Invokes `setup_cinematic_hud(player_name)` (`cl_draw_only_deathnotices 1`, `spec_show_xray 0`, 1st-person camera lock).
+  4. **Camera Trigger**: Issues `self.obs.start_recording()`.
+  5. **Playback**: Issues `self.cs2.resume_demo()` at normal 1.0x speed and sleeps for exact clip duration $D = (actual\_end - actual\_start) / 64.0$.
+  6. **Finalize & Sanitize**: Pauses CS2, issues `self.obs.stop_recording(wait_for_file_flush=True)`, locates the freshly generated raw clip via `find_latest_recording()`, and renames/moves it to `clips/{match_title}_Clip_{index:02d}_{safe_description}.mp4` (handling file collisions automatically by appending UNIX timestamps).
+* **`capture_playlist(demo_path, candidates, match_title, progress_callback=None)`**:
+  Iterates over a ranked list of candidate moments (`Layer 3 / 4`), capturing each highlight sequentially. Triggers `progress_callback(idx, total, clip_path)` after each clip for real-time frontend dashboard progress bars (`Layer 6`), and guarantees `restore_normal_hud()` is called upon batch conclusion.
 
 ---
 

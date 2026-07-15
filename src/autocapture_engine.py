@@ -1,0 +1,251 @@
+"""
+Automated Capture Engine (`src/autocapture_engine.py`)
+
+Master coordinator for Layer 5 Mode 1 (OBS & CS2 Auto-Capture).
+Links `CS2NetCon` (port 2121) and `OBSController` (port 4455) together to automatically
+record candidate highlights from a `.dem` replay file into crisp, cinematic `.mp4` video clips.
+"""
+
+import os
+import time
+import shutil
+from typing import List, Dict, Any, Optional, Union
+
+try:
+    from src.cs2_controller import CS2NetCon
+    from src.obs_controller import OBSController
+    from src.detectors.base import CandidateMoment
+except ImportError:
+    # Handle relative imports if run from inside `src/` or tests
+    from cs2_controller import CS2NetCon
+    from obs_controller import OBSController
+    CandidateMoment = None
+
+
+class AutoCaptureEngine:
+    """
+    Orchestrates Counter-Strike 2 demo playback and OBS Studio screen recording
+    to automatically slice and save top-ranked highlight clips.
+    """
+
+    def __init__(
+        self,
+        cs2_host: str = "127.0.0.1",
+        cs2_port: int = 2121,
+        obs_host: str = "localhost",
+        obs_port: int = 4455,
+        obs_password: str = "",
+        output_dir: str = "clips",
+        tick_rate: float = 64.0
+    ):
+        self.cs2 = CS2NetCon(host=cs2_host, port=cs2_port)
+        self.obs = OBSController(host=obs_host, port=obs_port, password=obs_password)
+        self.output_dir = os.path.abspath(output_dir)
+        self.tick_rate = tick_rate
+        self.current_loaded_demo: Optional[str] = None
+
+        os.makedirs(self.output_dir, exist_ok=True)
+
+    def connect_all(self, launch_cs2_if_closed: bool = True) -> bool:
+        """
+        Verifies and establishes connections to both OBS Studio and CS2 NetCon.
+        If CS2 is closed and `launch_cs2_if_closed` is True, boots CS2 automatically.
+        """
+        print("[AutoCaptureEngine] Verifying OBS Studio WebSocket connection...")
+        if not self.obs.connect(max_retries=2):
+            print("[AutoCaptureEngine ERROR] Cannot start capture: OBS Studio is not connected.")
+            return False
+
+        print("[AutoCaptureEngine] Verifying CS2 NetCon TCP connection...")
+        if not self.cs2.connect(max_retries=2):
+            if launch_cs2_if_closed:
+                print("[AutoCaptureEngine] Attempting to boot CS2 via Steam...")
+                if self.cs2.launch_cs2_if_needed(wait_seconds=20):
+                    time.sleep(3.0)  # Extra buffer for TCP console to open
+                    if not self.cs2.connect(max_retries=3):
+                        return False
+                else:
+                    return False
+            else:
+                return False
+
+        print("[AutoCaptureEngine SUCCESS] Both CS2 and OBS Studio are connected and ready!")
+        return True
+
+    def disconnect_all(self):
+        """Cleanly disconnects both controllers."""
+        self.cs2.disconnect()
+        self.obs.disconnect()
+        print("[AutoCaptureEngine] Disconnected from all controllers.")
+
+    def _extract_attr(self, item: Any, attr_name: str, default: Any = None) -> Any:
+        """Helper to extract attribute from either CandidateMoment object or dict."""
+        if isinstance(item, dict):
+            return item.get(attr_name, default)
+        return getattr(item, attr_name, default)
+
+    def capture_highlight(
+        self,
+        demo_path: str,
+        candidate: Any,
+        match_title: str = "Match",
+        clip_index: int = 1,
+        warmup_ticks: int = 64,   # 1.0s lead-in
+        cooldown_ticks: int = 128 # 2.0s cooldown
+    ) -> Optional[str]:
+        """
+        Records a single candidate highlight clip from a demo file.
+        
+        Args:
+            demo_path: Absolute or relative path to the `.dem` file.
+            candidate: `CandidateMoment` or dict with `start_tick`, `end_tick`, `player_name`, `description`.
+            match_title: Prefix name for the match (e.g. "Match730").
+            clip_index: Ordering rank number (`Highlight_1`).
+            warmup_ticks: Lead-in ticks before `start_tick` (default 64 = 1 second).
+            cooldown_ticks: Cooldown ticks after `end_tick` (default 128 = 2 seconds).
+            
+        Returns:
+            Absolute file path of the saved and renamed `.mp4` clip, or None if failed.
+        """
+        if not self.cs2.connected or not self.obs.connected:
+            if not self.connect_all():
+                return None
+
+        # 1. Extract moment properties
+        start_tick = int(self._extract_attr(candidate, "start_tick", 0))
+        end_tick = int(self._extract_attr(candidate, "end_tick", start_tick + 640))
+        player_name = str(self._extract_attr(candidate, "player_name", ""))
+        desc = str(self._extract_attr(candidate, "description", "Highlight"))
+        
+        # Calculate padded tick boundaries
+        actual_start = max(0, start_tick - warmup_ticks)
+        actual_end = end_tick + cooldown_ticks
+        duration_sec = max(2.0, (actual_end - actual_start) / self.tick_rate)
+
+        print(f"\n=======================================================")
+        print(f"[AutoCaptureEngine] Capturing Clip #{clip_index}: {desc}")
+        print(f" -> Target Player: {player_name if player_name else 'All / Default'}")
+        print(f" -> Ticks: {actual_start} to {actual_end} (~{duration_sec:.1f}s)")
+        print(f"=======================================================")
+
+        # 2. Load demo file if changed
+        clean_demo_path = os.path.abspath(demo_path)
+        if self.current_loaded_demo != clean_demo_path:
+            self.cs2.play_demo(clean_demo_path)
+            self.current_loaded_demo = clean_demo_path
+            print("[AutoCaptureEngine] Waiting 6s for Source 2 demo engine to load entities...")
+            time.sleep(6.0)
+
+        # 3. Teleport to warmup tick and pause
+        print(f"[AutoCaptureEngine] Teleporting demo to warmup tick {actual_start}...")
+        self.cs2.goto_tick(actual_start)
+        self.cs2.pause_demo()
+        time.sleep(1.0)  # Allow Source 2 frame renderer to settle
+
+        # 4. Apply cinematic HUD settings & lock camera POV
+        self.cs2.setup_cinematic_hud(player_name=player_name if player_name else None)
+        time.sleep(0.5)
+
+        # 5. Start OBS Recording
+        print("[AutoCaptureEngine] Rolling camera (Start OBS Recording)...")
+        if not self.obs.start_recording():
+            print("[AutoCaptureEngine ERROR] Failed to trigger OBS recording.")
+            return None
+
+        # 6. Resume normal 1.0x playback
+        print(f"[AutoCaptureEngine] Resuming game playback for {duration_sec:.1f} seconds...")
+        self.cs2.resume_demo()
+
+        # Sleep for exact clip duration
+        time.sleep(duration_sec)
+
+        # 7. Stop Recording & Pause Demo
+        print("[AutoCaptureEngine] Highlight finished! Stopping OBS camera...")
+        self.cs2.pause_demo()
+        raw_clip_path = self.obs.stop_recording(wait_for_file_flush=True, timeout=12.0)
+
+        if not raw_clip_path or not os.path.exists(raw_clip_path):
+            print("[AutoCaptureEngine ERROR] OBS stopped, but raw video clip could not be located on disk.")
+            return None
+
+        # 8. Sanitize description & move file to output folder
+        safe_desc = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in desc).strip('_')
+        safe_match = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in match_title).strip('_')
+        target_filename = f"{safe_match}_Clip_{clip_index:02d}_{safe_desc}.mp4"
+        target_abspath = os.path.join(self.output_dir, target_filename)
+
+        try:
+            # If target exists, overwrite or append counter
+            if os.path.exists(target_abspath):
+                target_abspath = os.path.join(self.output_dir, f"{safe_match}_Clip_{clip_index:02d}_{safe_desc}_{int(time.time())}.mp4")
+
+            shutil.move(raw_clip_path, target_abspath)
+            print(f"[AutoCaptureEngine SUCCESS] Clip successfully saved -> {target_abspath}")
+            return target_abspath
+        except Exception as e:
+            print(f"[AutoCaptureEngine ERROR] Failed to move clip from `{raw_clip_path}` to `{target_abspath}`: {e}")
+            return raw_clip_path
+
+    def capture_playlist(
+        self,
+        demo_path: str,
+        candidates: List[Any],
+        match_title: str = "Match",
+        progress_callback: Optional[Any] = None
+    ) -> List[str]:
+        """
+        Sequentially captures a full playlist of candidate highlights.
+        
+        Args:
+            demo_path: Absolute path to the `.dem` file.
+            candidates: List of `CandidateMoment` objects sorted by priority/score.
+            match_title: Title prefix for output clips.
+            progress_callback: Optional callback function `fn(current_idx, total_clips, latest_clip_path)`
+                               for updating UI progress bars.
+                               
+        Returns:
+            List of absolute paths to all successfully recorded `.mp4` clips.
+        """
+        saved_clips = []
+        total = len(candidates)
+        print(f"\n[AutoCaptureEngine] Starting batch capture of {total} highlights from `{os.path.basename(demo_path)}`...")
+
+        if not self.connect_all():
+            return []
+
+        try:
+            for idx, candidate in enumerate(candidates, start=1):
+                clip_path = self.capture_highlight(
+                    demo_path=demo_path,
+                    candidate=candidate,
+                    match_title=match_title,
+                    clip_index=idx
+                )
+                if clip_path:
+                    saved_clips.append(clip_path)
+
+                if progress_callback and callable(progress_callback):
+                    try:
+                        progress_callback(idx, total, clip_path)
+                    except Exception:
+                        pass
+
+                # Short 1.5s breather between highlights
+                time.sleep(1.5)
+        finally:
+            # Always restore normal HUD and disconnect at the end of a batch
+            print("\n[AutoCaptureEngine] Batch complete. Restoring normal spectator HUD...")
+            self.cs2.restore_normal_hud()
+            self.disconnect_all()
+
+        print(f"\n[AutoCaptureEngine SUMMARY] Successfully captured {len(saved_clips)}/{total} clips into `{self.output_dir}`!")
+        return saved_clips
+
+
+if __name__ == "__main__":
+    print("=== AutoCaptureEngine Standalone Test ===")
+    engine = AutoCaptureEngine(output_dir="clips_test")
+    print(f" -> Output Folder: {engine.output_dir}")
+    print(f" -> CS2 Host: {engine.cs2.host}:{engine.cs2.port}")
+    print(f" -> OBS Host: {engine.obs.host}:{engine.obs.port}")
+    print("To run a live capture test, ensure OBS Studio is open and call `engine.capture_playlist()`.")
