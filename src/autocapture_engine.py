@@ -58,13 +58,17 @@ class AutoCaptureEngine:
             obs_dir = r"C:\Program Files\obs-studio\bin\64bit"
             if os.path.exists(obs_path):
                 try:
-                    import subprocess
-                    subprocess.Popen([obs_path], cwd=obs_dir)
-                    print("[AutoCaptureEngine] Launched `obs64.exe`. Waiting 7 seconds for WebSocket server...")
-                    time.sleep(7.0)
+                    import subprocess, shutil
+                    sentinel_dir = os.path.join(os.path.expanduser("~"), "AppData", "Roaming", "obs-studio", ".sentinel")
+                    if os.path.exists(sentinel_dir):
+                        shutil.rmtree(sentinel_dir, ignore_errors=True)
+                        print("[AutoCaptureEngine] Scrubbed OBS `.sentinel` crash directory to guarantee clean startup.")
+                    subprocess.Popen([obs_path, "--always-normal-mode", "--disable-shutdown-check", "--disable-safe-mode"], cwd=obs_dir)
+                    print("[AutoCaptureEngine] Launched `obs64.exe` (Always Normal Mode & Safe Mode bypass enabled). Waiting for WebSocket server to initialize...")
+                    time.sleep(8.0)
                 except Exception as e:
                     print(f"[AutoCaptureEngine ERROR] Could not launch OBS: {e}")
-            if not self.obs.connect(max_retries=6, retry_delay=1.5):
+            if not self.obs.connect(max_retries=10, retry_delay=2.0):
                 print("[AutoCaptureEngine ERROR] Cannot start capture: OBS Studio is not connected.")
                 return False
 
@@ -177,8 +181,10 @@ class AutoCaptureEngine:
         self.cs2.setup_cinematic_hud(player_name=player_name if player_name else None)
         time.sleep(0.5)
 
-        # 5. Enforce 1080p 60FPS & Start OBS Recording
+        # 5. Enforce 1080p 60FPS, bring CS2 window to foreground, & Start OBS Recording
         self.obs.set_1080p_60fps()
+        self.cs2.focus_cs2_window()
+        time.sleep(0.3)
         print("[AutoCaptureEngine] Rolling camera (Start OBS Recording)...")
         if not self.obs.start_recording():
             print("[AutoCaptureEngine ERROR] Failed to trigger OBS recording.")
@@ -189,23 +195,19 @@ class AutoCaptureEngine:
         self.cs2.resume_demo()
         time.sleep(0.4)  # Allow Source 2 to render unpaused frames before switching camera
 
-        # Enforce 1st-person POV lock on target player and force close bottom demo timeline playbar
+        # Enforce 1st-person POV lock on target player
         if player_name:
             self.cs2.lock_camera_to_player(player_name)
+        
+        # Apply strict non-toggling close right right after camera lock right when playback starts
         self.cs2.suppress_demo_ui()
-        self.cs2.send_command("cl_draw_only_deathnotices 0") # Keep player profile visible
-        self.cs2.send_command("cl_drawhud 1")                # Ensure HUD is enabled
+        self.cs2.send_command("cl_draw_only_deathnotices 1") # Hide all UI, radar, and demo scrubber bar, leaving ONLY killfeed
+        self.cs2.send_command("cl_drawhud 1")                # Ensure HUD killfeed panel is enabled
 
-        # Active maintenance loop during recording: continuously suppress Demo UI playbar every 1.5 seconds
-        elapsed = 0.0
-        loop_interval = 1.5
+        # Let game play peacefully without repetitive UI commands during the recording
         remaining_duration = max(0.0, duration_sec - 0.4)
-        while elapsed < remaining_duration:
-            sleep_time = min(loop_interval, remaining_duration - elapsed)
-            time.sleep(sleep_time)
-            elapsed += sleep_time
-            if elapsed < remaining_duration:
-                self.cs2.suppress_demo_ui()
+        print(f"[AutoCaptureEngine] Recording {remaining_duration:.1f} seconds of clean gameplay...")
+        time.sleep(remaining_duration)
 
         # 7. Stop Recording & Pause Demo
         print("[AutoCaptureEngine] Highlight finished! Stopping OBS camera...")

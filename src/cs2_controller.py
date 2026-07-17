@@ -115,6 +115,11 @@ class CS2NetCon:
                 self.sock.connect((self.host, self.port))
                 self.connected = True
                 print(f"[CS2NetCon SUCCESS] Connected to CS2 NetCon on {self.host}:{self.port}")
+                try:
+                    self.send_command("snd_mute_losefocus 0") # Guarantee audio plays/records even if window loses focus
+                    self.focus_cs2_window()
+                except Exception as e:
+                    print(f"[CS2NetCon WARNING] Could not apply initial audio/focus settings: {e}")
                 return True
             except (ConnectionRefusedError, socket.timeout, OSError) as e:
                 if attempt < max_retries:
@@ -127,6 +132,37 @@ class CS2NetCon:
                     self.connected = False
                     return False
         return False
+
+    def focus_cs2_window(self) -> bool:
+        """
+        Locates the active Counter-Strike 2 (`cs2.exe`) window handle and brings
+        it automatically to the foreground (`SetForegroundWindow`).
+        Ensures game audio (`snd_mute_losefocus`) and OBS window/game hooks
+        record cleanly without requiring any manual mouse clicks from the user.
+        """
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            # Find window by class name or exact window title
+            hwnd = user32.FindWindowW(None, "Counter-Strike 2")
+            if not hwnd:
+                hwnd = user32.FindWindowW("SDL_app", None)
+            if hwnd:
+                # If window is minimized (IsIconic), restore it (SW_RESTORE = 9), otherwise show normal (SW_SHOW = 5)
+                if user32.IsIconic(hwnd):
+                    user32.ShowWindow(hwnd, 9)
+                else:
+                    user32.ShowWindow(hwnd, 5)
+                
+                user32.SetForegroundWindow(hwnd)
+                print("[CS2NetCon SUCCESS] Automatically brought Counter-Strike 2 window to foreground!")
+                return True
+            else:
+                print("[CS2NetCon WARNING] Could not locate `Counter-Strike 2` window handle (`hwnd`).")
+                return False
+        except Exception as e:
+            print(f"[CS2NetCon ERROR] Failed to focus CS2 window: {e}")
+            return False
 
     def disconnect(self):
         """Closes the socket connection to CS2 NetCon cleanly and scrubs VAC launch options."""
@@ -254,13 +290,12 @@ class CS2NetCon:
         Applies clean, esports-grade HUD configurations:
         - Hides radar, inventory, health/ammo bars; leaves ONLY kill feed in top-right (`cl_draw_only_deathnotices 1`).
         - Disables X-Ray wallhacks (`spec_show_xray 0`) for an authentic live-match feel.
-        - Hides the bottom demo scrubber control bar (`r_show_demo_ui 0`).
         - Optionally locks camera to `player_name` in First-Person view (`spec_mode 1`).
         """
-        print("[CS2NetCon] Applying spectator HUD settings (Player Profile visible, No X-Ray, Hidden Demo UI)...")
+        print("[CS2NetCon] Applying spectator HUD settings (`cl_draw_only_deathnotices 1`, No X-Ray)...")
         commands = [
-            "sv_cheats 1",                   # Required for some offline demo UI tweaks
-            "cl_draw_only_deathnotices 0",   # 0 = Keeps player profile, ammo, health, weapon & avatars VISIBLE
+            "sv_cheats 1",                   # Required for offline HUD tweaks
+            "cl_draw_only_deathnotices 1",   # 1 = Leaves ONLY kill feed in top-right
             "cl_drawhud 1",                  # Ensure HUD panels are enabled
             "spec_show_xray 0",              # Disables X-Ray player outlines through walls for authentic feel
             "demo_timescale 1.0",            # Ensure normal speed
@@ -273,39 +308,27 @@ class CS2NetCon:
         
         for cmd in commands:
             self.send_command(cmd)
-        self.suppress_demo_ui()
 
     def suppress_demo_ui(self):
         """
-        Forces the bottom replay timeline scrubber bar (`Demo UI`) and spectator
-        keybinding hints to close/hide across all Source 2 UI modes without toggling open.
+        Per exact user command: exclusively sends `cl_draw_only_deathnotices 1` without any
+        additional demoui or UI commands.
         """
-        commands = [
-            "demoui_close",                  # Panorama explicit close command
-            "demoui false",                  # User requested exact command
-            "demoui 0",                      # Boolean zero format
-            "demo_ui_mode 0",                # Source 2 timeline mode
-            "r_show_demo_ui 0",              # Legacy render command
-            "cl_spec_show_bindings 0",       # Hide "[G]: Enable Mouse..." hint bar
-        ]
-        for cmd in commands:
-            self.send_command(cmd)
+        self.send_command("cl_draw_only_deathnotices 1")
 
     def lock_camera_to_player(self, player_name: str):
         """
         Locks spectator camera directly into `player_name`'s First-Person (In-Eye / POV) view.
-        Sends Source 2 `spec_player` across 6 pulses while ticking to ensure exact POV lock.
-        Also invokes `suppress_demo_ui()` on every pulse so any tick jump or camera switch
-        cannot pop open the bottom demo playback scrubber bar (`Demo UI`).
+        Sends Source 2 `spec_player` alongside `cl_draw_only_deathnotices 1`.
         """
         if not player_name:
             return
-        print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (and suppressing Demo UI playbar)...")
+        print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (enforcing cl_draw_only_deathnotices 1)...")
         for _ in range(6):
             self.send_command("spec_mode 1")                         # First person POV
             self.send_command(f'spec_player "{player_name}"')        # Lock view with quotes
             self.send_command(f"spec_player {player_name}")          # Lock view without quotes
-            self.suppress_demo_ui()
+            self.send_command("cl_draw_only_deathnotices 1")         # Disable HUD alongside player lock
             self.send_command("spec_mode 1")                         # Re-assert first person after slot/name selection
             time.sleep(0.3)
 
