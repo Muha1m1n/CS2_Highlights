@@ -78,9 +78,44 @@ class OBSController:
         self.connected = False
         print("[OBSController] Disconnected from OBS Studio.")
 
+    def disable_mouse_cursor_capture(self) -> bool:
+        """
+        Scans all inputs/sources in OBS Studio (Game Capture, Display Capture, Window Capture)
+        and sets `capture_cursor = False` so the Windows mouse pointer never appears in recorded clips.
+        """
+        if not self.connected or not self.client:
+            if not self.connect(max_retries=1):
+                return False
+        try:
+            inputs_res = self.client.call(requests.GetInputList())
+            inputs = inputs_res.getInputs() if hasattr(inputs_res, 'getInputs') else inputs_res.get('inputs', [])
+            disabled_count = 0
+            for item in inputs:
+                input_name = item.get('inputName') if isinstance(item, dict) else getattr(item, 'inputName', None)
+                input_kind = item.get('inputKind') if isinstance(item, dict) else getattr(item, 'inputKind', None)
+                if not input_name:
+                    continue
+                if any(kind in str(input_kind).lower() for kind in ['capture', 'game', 'monitor', 'window', 'dxcap']):
+                    try:
+                        self.client.call(requests.SetInputSettings(
+                            inputName=input_name,
+                            inputSettings={"capture_cursor": False},
+                            overlay=True
+                        ))
+                        disabled_count += 1
+                        print(f"[OBSController] Disabled mouse cursor capture on source: `{input_name}`")
+                    except Exception:
+                        pass
+            print(f"[OBSController SUCCESS] Mouse cursor suppression (`capture_cursor=False`) applied across {disabled_count} capture source(s).")
+            return True
+        except Exception as e:
+            print(f"[OBSController WARNING] Could not modify input settings for mouse cursor ({e}).")
+            return False
+
     def set_1080p_60fps(self) -> bool:
         """
-        Enforces 1080p (1920x1080) at 60 FPS recording settings on OBS Studio.
+        Enforces 1080p (1920x1080) at 60 FPS recording settings on OBS Studio,
+        and automatically suppresses mouse cursor across all capture sources.
         """
         if not self.connected or not self.client:
             if not self.connect(max_retries=1):
@@ -95,6 +130,7 @@ class OBSController:
                 fpsDenominator=1
             ))
             print("[OBSController] Recording resolution enforced: 1920x1080 (1080p) @ 60 FPS.")
+            self.disable_mouse_cursor_capture()
             return True
         except Exception as e:
             print(f"[OBSController WARNING] Could not set 1080p resolution ({e}). Using existing OBS settings.")
