@@ -94,8 +94,8 @@ class ClutchDetector(AbstractDetector):
 
             # Evaluate if any clutch opportunity succeeded
             for clutch_player, start_tick, opponent_count, player_team in clutch_opportunities:
-                # Did the clutch player's team win the round?
-                if player_team == winner:
+                # Did the clutch player's team win the round AND did the clutch player survive?
+                if player_team == winner and clutch_player not in dead_players:
                     # Determine base score based on opponent count (1vN)
                     if opponent_count == 1:
                         base_score = 2.0
