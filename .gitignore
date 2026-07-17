@@ -21,3 +21,8 @@ ENV/
 # System generated artifacts
 .gemini/
 .system_generated/
+
+# Video Output Directories & Clips
+clips/
+clips_*/
+*.mp4

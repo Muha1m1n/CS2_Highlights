@@ -5,12 +5,16 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from src.database import CS2Database
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "test_matches.db")
+DEFAULT_MODEL_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "win_prob_rf.pkl")
+
 class CS2WinProbabilityModel:
     """
     Random Forest win-probability predictor for Counter-Strike 2 rounds.
     Includes a math-based heuristic fallback if the database has insufficient training data.
     """
-    def __init__(self, db_path: str = "data/processed/matches.db", model_path: str = "data/processed/win_prob_rf.pkl"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH, model_path: str = DEFAULT_MODEL_PATH):
         self.db_path = db_path
         self.model_path = model_path
         self.model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)

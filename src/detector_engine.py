@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 from typing import List
 from src.detectors.base import CandidateMoment
@@ -6,13 +7,16 @@ from src.detectors.clutch import ClutchDetector
 from src.detectors.skill import SkillDetector
 from src.ml_model import CS2WinProbabilityModel
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_DB_PATH = os.path.join(PROJECT_ROOT, "data", "processed", "test_matches.db")
+
 class CS2DetectorEngine:
     """
     Main orchestration engine that runs all highlight detectors, applies win-probability
     swing boosts via a Random Forest ML model, de-duplicates overlapping clips,
     and sorts highlights.
     """
-    def __init__(self, db_path: str = "data/processed/matches.db"):
+    def __init__(self, db_path: str = DEFAULT_DB_PATH):
         self.multikill_detector = MultiKillDetector()
         self.clutch_detector = ClutchDetector()
         self.skill_detector = SkillDetector()

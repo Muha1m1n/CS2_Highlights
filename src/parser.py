@@ -7,14 +7,14 @@ class CS2DemoParser:
     Wrapper for demoparser2 to parse CS2 demo files (.dem) and extract
     normalized game event structures (rounds, kills, bomb events).
     """
-    def __init__(self, demo_path: str):
-        if not os.path.exists(demo_path):
-            raise FileNotFoundError(f"Demo file not found: {demo_path}")
+    def __init__(self, demo_path: str = None):
         self.demo_path = demo_path
-        self.parser = DemoParser(demo_path)
+        self.parser = DemoParser(demo_path) if demo_path and os.path.exists(demo_path) else None
         self.header = None
         self.tick_rate = 64  # Default fallback
         self.map_name = "unknown"
+        if demo_path and not os.path.exists(demo_path):
+            raise FileNotFoundError(f"Demo file not found: {demo_path}")
         
     def parse_metadata(self) -> dict:
         """
@@ -218,3 +218,22 @@ class CS2DemoParser:
         bomb_df["round_number"] = bomb_df["round_number"].astype(int)
         
         return bomb_df
+
+    def parse(self, demo_path: str = None):
+        """
+        Master method that runs full extraction on a .dem file:
+        Returns: (metadata_dict, rounds_df, kills_df, bomb_df)
+        """
+        if demo_path:
+            if not os.path.exists(demo_path):
+                raise FileNotFoundError(f"Demo file not found: {demo_path}")
+            self.demo_path = demo_path
+            self.parser = DemoParser(demo_path)
+        elif not self.parser or not self.demo_path:
+            raise ValueError("No valid demo_path provided to CS2DemoParser.")
+            
+        meta = self.parse_metadata()
+        rounds_df = self.parse_rounds()
+        kills_df = self.parse_kills(rounds_df)
+        bomb_df = self.parse_bomb_events(rounds_df)
+        return meta, rounds_df, kills_df, bomb_df
