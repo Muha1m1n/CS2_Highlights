@@ -88,8 +88,12 @@ class CS2DetectorEngine:
                     merged_base = next_mom.base_score
                     merged_skill = max_score - merged_base - merged_ml
 
-                # Merge metadata
+                # Merge metadata cleanly preserving kill lists
                 merged_meta = {**current.metadata, **next_mom.metadata}
+                kills_curr = current.metadata.get("kills", [])
+                kills_next = next_mom.metadata.get("kills", [])
+                if isinstance(kills_curr, list) and isinstance(kills_next, list):
+                    merged_meta["kills"] = kills_curr + kills_next
                 merged_meta["merged_events"] = [current.highlight_type, next_mom.highlight_type]
 
                 current = CandidateMoment(
@@ -110,8 +114,9 @@ class CS2DetectorEngine:
                 
         merged_moments.append(current)
 
-        # 6. Sort final highlights descending by total score (highest quality first)
-        merged_moments.sort(key=lambda m: m.total_score, reverse=True)
+        # 6. Sort final highlights strictly by kill tier descending (Ace > 4K > 3K > 2K > 1K),
+        # then by total score (skill + ML swing + clutch) descending within each tier.
+        merged_moments.sort(key=lambda m: (m.kill_count, m.total_score), reverse=True)
 
         return merged_moments
 

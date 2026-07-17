@@ -318,6 +318,21 @@ def list_players(match_hash: str):
 # ---------------------------------------------------------------------------
 # API: ML-ranked highlights for a player
 # ---------------------------------------------------------------------------
+def _extract_kill_count(d: dict) -> int:
+    kills = d.get("metadata", {}).get("kills", [])
+    if isinstance(kills, list) and len(kills) > 0:
+        return len(kills)
+    text = f"{d.get('highlight_type', '')} {d.get('description', '')}".upper()
+    if any(token in text for token in ("ACE", "5K", "6K", "7K")):
+        return 5
+    if "4K" in text:
+        return 4
+    if "3K" in text:
+        return 3
+    if "2K" in text:
+        return 2
+    return 1
+
 @app.get("/api/matches/{match_hash}/players/{player_name}/highlights")
 def get_highlights(match_hash: str, player_name: str):
     conn = get_db()
@@ -373,6 +388,7 @@ def get_highlights(match_hash: str, player_name: str):
                 "player_name": m.player_name, "metadata": m.metadata,
                 "side": side, "round_won": won
             })
+        result.sort(key=lambda x: (_extract_kill_count(x), x.get("total_score", 0.0)), reverse=True)
         return result
     except Exception as e:
         print(f"[WebServer] ML detector failed ({e}), using DB fallback...")
@@ -407,9 +423,10 @@ def get_highlights(match_hash: str, player_name: str):
             "highlight_type": hl_type, "base_score": round(base, 2), "skill_bonus": round(skill, 2),
             "ml_boost": 0.0, "total_score": round(base + skill, 2),
             "description": f"{player_name} Round {rn} ({kills}K - {r['headshots'] or 0} HS)",
-            "player_name": player_name, "metadata": {"headshots": r["headshots"] or 0},
+            "player_name": player_name, "metadata": {"headshots": r["headshots"] or 0, "kills": [{} for _ in range(kills)]},
             "side": side, "round_won": won
         })
+    highlights.sort(key=lambda x: (_extract_kill_count(x), x.get("total_score", 0.0)), reverse=True)
     return highlights
 
 # ---------------------------------------------------------------------------

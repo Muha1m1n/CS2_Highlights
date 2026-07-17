@@ -20,6 +20,28 @@ class CandidateMoment:
     def total_score(self) -> float:
         return self.base_score + self.skill_bonus + self.ml_boost
 
+    @property
+    def kill_count(self) -> int:
+        """
+        Returns the exact number of kills in this highlight moment for strict kill-tier ranking
+        (Ace/5K+ = 5, 4K = 4, 3K = 3, 2K = 2, 1K/Clutch = 1).
+        """
+        kills = self.metadata.get("kills", [])
+        if isinstance(kills, list) and len(kills) > 0:
+            return len(kills)
+            
+        # Fallback string parsing from highlight_type or description
+        text = f"{self.highlight_type} {self.description}".upper()
+        if any(token in text for token in ("ACE", "5K", "6K", "7K")):
+            return 5
+        if "4K" in text:
+            return 4
+        if "3K" in text:
+            return 3
+        if "2K" in text:
+            return 2
+        return 1
+
 class AbstractDetector(ABC):
     """
     Abstract Base Class for all highlight detectors.
