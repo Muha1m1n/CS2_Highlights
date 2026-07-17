@@ -20,12 +20,18 @@ To deliver a locally tuned, zero-browser-dependence experience, `src/desktop_app
 
 ## 2. Standalone Windows Launchers (`bat` & `vbs`)
 
-To allow instant double-click startup directly from the desktop or repository root:
+To allow instant double-click startup directly from the desktop or repository root across ANY PC or folder path (`using dynamic %~dp0 / FileSystemObject relative paths`):
 
-1. **`Launch_ClipperCS2.bat`**:
-   Standard Windows Command Script that locates `python.exe` and executes `python src/desktop_app.py` cleanly.
-2. **`Launch_ClipperCS2_Silent.vbs`**:
-   VBScript wrapper using `WScript.Shell.Run "cmd.exe /c Launch_ClipperCS2.bat", 0, True`. Launches the complete application totally silently without spawning or flashing any background command prompt (`CMD`) terminal windows.
+1. **`Install_and_Run.bat` (`1-Click All-in-One Setup & Launcher`)**:
+   The primary entry point for new users or friends. When double-clicked:
+   * **Verifies Python**: Checks if Python 3.10+ is installed (`opens official Python download directly if missing`).
+   * **Creates Isolated Environment**: Spawns an isolated `.venv` directory and installs `requirements.txt` (`demoparser2`, `pywebview`, `fastapi`, `obswebsocket`).
+   * **Creates Desktop Icon**: Automatically creates a `ClipperCS2.lnk` shortcut on the Windows Desktop.
+   * **Launches App Immediately**: Starts up the application right away.
+2. **`Launch_ClipperCS2.bat`**:
+   Standard Windows Command Script that dynamically locates `.venv\Scripts\python.exe` (`or python on PATH`) via `%~dp0` and executes `python -m src.desktop_app` cleanly.
+3. **`Launch_ClipperCS2_Silent.vbs`**:
+   Portable VBScript wrapper using `FileSystemObject` and `WScript.Shell.Run` (`.venv\Scripts\pythonw.exe -m src.desktop_app, 0, False`). Launches the complete application totally silently without spawning or flashing any background command prompt (`CMD`) terminal windows.
 
 ---
 

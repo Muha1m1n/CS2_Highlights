@@ -93,7 +93,16 @@ ClipperCS2/
 * **Counter-Strike 2**: Installed via Steam (`cs2.exe`)
 * **OBS Studio**: Version 28.0+ (`WebSocket v5` enabled on port `4455`)
 
-### 2. Installation
+### 2. Installation & Quickstart (1-Click Setup)
+
+#### Method A: 1-Click All-in-One Installer & Launcher (Recommended for New Users)
+Simply double-click **`Install_and_Run.bat`** directly inside the `ClipperCS2` folder!
+* **Checks Python**: Automatically detects if Python 3.10+ is installed (`if not, opens the official installer directly`).
+* **Creates Virtual Environment**: Automatically creates a clean `.venv` directory and installs all dependencies (`demoparser2`, `pywebview`, `fastapi`, `obswebsocket`).
+* **Creates Desktop Shortcut**: Automatically places a `ClipperCS2` shortcut icon on your Windows Desktop pointing to `Launch_ClipperCS2_Silent.vbs`.
+* **Launches App Immediately**: Boots the native desktop application right away (`and anytime later via the desktop icon or Launch_ClipperCS2_Silent.vbs`)!
+
+#### Method B: Manual Command-Line Installation
 ```powershell
 # Clone the repository
 git clone https://github.com/yourusername/ClipperCS2.git
@@ -101,6 +110,9 @@ cd ClipperCS2
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Launch Desktop App
+python -m src.desktop_app
 ```
 
 ### 3. Running Automated Highlight Capture (Mode 1)
