@@ -79,9 +79,14 @@ async function scanDemoFolder() {
             <div class="empty-state">
                 <div class="empty-state-icon">&#9888;</div>
                 <div class="empty-state-text">Folder not found or inaccessible</div>
-                <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">${escapeHtml(folder)}</div>
+                <div style="font-size:12px; color:var(--text-dim); margin-top:4px;">${escapeHtml(folder || 'Auto-scanning C:\\, D:\\, E:\\ Steam paths...')}</div>
+                <div style="font-size:12px; color:var(--accent); margin-top:8px;">Please paste your exact Counter-Strike 2 replays path into the input box above and click Scan!</div>
             </div>`;
         return;
+    }
+
+    if (data.folder && document.getElementById('demoFolderInput')) {
+        document.getElementById('demoFolderInput').value = data.folder;
     }
 
     state.demos = data.demos || [];

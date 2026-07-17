@@ -76,24 +76,58 @@ def get_db():
     return conn
 
 # ---------------------------------------------------------------------------
+# Helper: Auto-discover CS2 replays folder across drives if default missing
+# ---------------------------------------------------------------------------
+def find_cs2_replays_folder(custom_path: str = "") -> str:
+    if custom_path:
+        cleaned = custom_path.strip().strip('"').strip("'").rstrip('/\\')
+        if os.path.isdir(cleaned):
+            return cleaned
+
+    if os.path.isdir(DEFAULT_DEMO_FOLDER):
+        return DEFAULT_DEMO_FOLDER
+
+    # Scan across common drives if CS2 is installed on D:\, E:\, F:\, G:\
+    for drive in ["D:", "E:", "F:", "G:", "C:"]:
+        for base in [
+            r"\Program Files (x86)\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\replays",
+            r"\Steam\steamapps\common\Counter-Strike Global Offensive\game\csgo\replays",
+            r"\SteamLibrary\steamapps\common\Counter-Strike Global Offensive\game\csgo\replays"
+        ]:
+            candidate = drive + base
+            if os.path.isdir(candidate):
+                return candidate
+
+    return custom_path or DEFAULT_DEMO_FOLDER
+
+# ---------------------------------------------------------------------------
 # API: Scan demo folder for .dem files
 # ---------------------------------------------------------------------------
 @app.get("/api/demos")
 def list_demos(folder: str = ""):
-    demo_folder = folder if folder and os.path.isdir(folder) else DEFAULT_DEMO_FOLDER
+    demo_folder = find_cs2_replays_folder(folder)
     if not os.path.isdir(demo_folder):
         return {"folder": demo_folder, "exists": False, "demos": []}
     
     demos = []
-    for f in os.listdir(demo_folder):
+    try:
+        filenames = os.listdir(demo_folder)
+    except Exception as e:
+        return {"folder": demo_folder, "exists": False, "demos": [], "error": str(e)}
+
+    for f in filenames:
         if f.lower().endswith(".dem"):
             fpath = os.path.join(demo_folder, f)
             try:
                 mtime = os.path.getmtime(fpath)
             except Exception:
                 mtime = 0
-            size_mb = round(os.path.getsize(fpath) / (1024 * 1024), 1)
-            modified = datetime.fromtimestamp(mtime).isoformat()
+            try:
+                size_mb = round(os.path.getsize(fpath) / (1024 * 1024), 1)
+            except Exception:
+                size_mb = 0.0
+
+            modified = datetime.fromtimestamp(mtime).isoformat() if mtime > 0 else "Unknown"
             demos.append({
                 "filename": f,
                 "path": fpath,
