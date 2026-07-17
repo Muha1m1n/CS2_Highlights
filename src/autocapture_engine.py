@@ -194,11 +194,11 @@ class AutoCaptureEngine:
                     break
             time.sleep(2.0)  # Buffer after level settle before teleporting
 
-        # 3. Teleport demo to exact start tick and let it play for 0.5s so entities load cleanly
+        # 3. Teleport demo to exact start tick and let it play for 2.0s so entities load cleanly after tick jump
         print(f"[AutoCaptureEngine] Teleporting demo to pre-fight tick {actual_start}...")
         self.cs2.goto_tick(actual_start)
         self.cs2.resume_demo()
-        time.sleep(0.5)
+        time.sleep(2.0)  # Wait 2.0s so Source 2 completes tick seek asynchronously across rounds & spawns all player entities
 
         # 4. Bring CS2 to foreground, detect its exact running resolution (4:3, 16:9, etc.), and configure OBS canvas dynamically!
         self.cs2.focus_cs2_window()
@@ -231,9 +231,17 @@ class AutoCaptureEngine:
         self.cs2.send_command("cl_spec_show_bindings 0")
         self.cs2.send_command("r_show_demo_ui 0")
         self.cs2.pause_demo()
-        time.sleep(1.0)
+        time.sleep(0.8)
 
-        # 7. Now Start Recording (Frame #1 captures the clean pre-fight lead-in at least 5+ seconds before shooting starts!)
+        # 6b. FINAL POV LOCK while demo is paused at exact lead-in tick
+        # This guarantees that even if a long seek jump reset the spectator slot right as pause_demo() ran,
+        # the camera locks firmly onto `player_name` in 1st-person POV right before OBS rolls Frame #1.
+        if player_name:
+            print(f"[AutoCaptureEngine] Re-asserting final 1st-person POV lock onto `{player_name}` while paused at tick {actual_start} right before rolling OBS camera...")
+            self.cs2.lock_camera_to_player(player_name)
+            time.sleep(0.5)
+
+        # 7. Now Start Recording (Frame #1 captures the clean pre-fight lead-in at least 3+ seconds before shooting starts!)
         print("[AutoCaptureEngine] Rolling camera (Start OBS Recording)...")
         if not self.obs.start_recording():
             print("[AutoCaptureEngine ERROR] Failed to trigger OBS recording.")

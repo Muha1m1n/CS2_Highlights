@@ -436,6 +436,8 @@ class CS2NetCon:
         print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (enforcing ONLY killfeed HUD via cl_draw_only_deathnotices 1)...")
         for _ in range(6):
             self.send_command("spec_mode 1")                         # First person POV
+            self.send_command(f'spec_player_by_name "{player_name}"') # Lock view using explicit string name lookup
+            self.send_command(f"spec_player_by_name {player_name}")   # Fallback without quotes
             self.send_command(f'spec_player "{player_name}"')        # Lock view with quotes
             self.send_command(f"spec_player {player_name}")          # Lock view without quotes
             self.send_command("cl_draw_only_deathnotices 1")         # SHOW ONLY killfeed & hide all other HUD elements
