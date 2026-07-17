@@ -143,7 +143,7 @@ class AutoCaptureEngine:
         match_title: str = "Match",
         clip_index: int = 1,
         warmup_ticks: int = 192,  # Exactly 3.0s lead-in before the kill tick
-        cooldown_ticks: int = 16  # 0.25s cooldown after the kill tick
+        cooldown_ticks: int = 128  # Exactly 2.0s cooldown after the last kill tick
     ) -> Optional[str]:
         """
         Records a single candidate highlight clip from a demo file.
@@ -154,7 +154,7 @@ class AutoCaptureEngine:
             match_title: Prefix name for the match (e.g. "Match730").
             clip_index: Ordering rank number (`Highlight_1`).
             warmup_ticks: Lead-in ticks before `start_tick` (default 192 = exactly 3.0 seconds).
-            cooldown_ticks: Cooldown ticks after `end_tick` (default 16 = 0.25 seconds for instant cutoff).
+            cooldown_ticks: Cooldown ticks after `end_tick` (default 128 = exactly 2.0 seconds).
             
         Returns:
             Absolute file path of the saved and renamed `.mp4` clip, or None if failed.
@@ -302,7 +302,7 @@ class AutoCaptureEngine:
         progress_callback: Optional[Any] = None,
         close_apps_when_done: bool = True,
         warmup_ticks: int = 192,  # Exactly 3.0s lead-in before kill tick
-        cooldown_ticks: int = 16  # 0.25s cooldown
+        cooldown_ticks: int = 128  # Exactly 2.0s cooldown after last kill tick
     ) -> List[str]:
         """
         Sequentially captures a full playlist of candidate highlights.
@@ -315,7 +315,7 @@ class AutoCaptureEngine:
                                for updating UI progress bars.
             close_apps_when_done: If True, automatically closes CS2 and OBS Studio when recording concludes.
             warmup_ticks: Lead-in ticks before `start_tick` (default 192 = exactly 3.0 seconds).
-            cooldown_ticks: Cooldown ticks after `end_tick` (default 16 = 0.25 seconds).
+            cooldown_ticks: Cooldown ticks after `end_tick` (default 128 = exactly 2.0 seconds).
                                
         Returns:
             List of absolute paths to all successfully recorded `.mp4` clips.
@@ -435,11 +435,11 @@ if __name__ == "__main__":
             death_row = c.execute(f"SELECT min(tick) FROM kills WHERE user_name LIKE ? AND round_number = ?{match_hash_clause}", death_params).fetchone()
             final_tick = row[2]
             if death_row and death_row[0]:
-                final_tick = min(final_tick, death_row[0] + 16) # Include death tick plus 16 ticks (~0.25s) for instant cut
+                final_tick = min(final_tick, death_row[0]) # Exact death or last kill tick
             conn.close()
             player_cands = [{
                 "start_tick": row[1],        # Exact 1st kill tick; warmup_ticks=192 handles exact 3.0s lead-in
-                "end_tick": final_tick,      # Exact end/death tick; cooldown_ticks=16 handles instant cut
+                "end_tick": final_tick,      # Exact end/death tick; cooldown_ticks=128 handles exact 2.0s post-kill/death buffer
                 "player_name": args.player,
                 "description": f"{args.player} Round {row[0]} ({row[3]} Kills High Score)",
                 "round_num": row[0]

@@ -491,7 +491,7 @@ def start_recording(req: RecordRequest):
                 death_row = db_conn.execute(
                     "SELECT MIN(tick) FROM kills WHERE user_name LIKE ? AND round_number = ? AND match_hash = ?",
                     (f"%{req.player_name}%", req.round_num, req.match_hash)).fetchone()
-                if death_row and death_row[0]: final_tick = min(final_tick, death_row[0] + 16)
+                if death_row and death_row[0]: final_tick = min(final_tick, death_row[0]) # Exact last kill or death tick
                 db_conn.close()
             except Exception: pass
             
