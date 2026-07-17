@@ -279,6 +279,9 @@ class CS2NetCon:
 
     def restore_normal_hud(self):
         """Restores standard HUD, X-Ray, and Demo control menus."""
+        if not self.connected or not self.sock:
+            print("[CS2NetCon] Socket already closed or disconnected. Skipping HUD restoration.")
+            return
         print("[CS2NetCon] Restoring normal spectator HUD settings...")
         commands = [
             "cl_draw_only_deathnotices 0",
@@ -288,7 +291,11 @@ class CS2NetCon:
             "cl_spec_show_bindings 1",
         ]
         for cmd in commands:
-            self.send_command(cmd)
+            try:
+                self.send_command(cmd)
+            except Exception as e:
+                print(f"[CS2NetCon WARNING] Could not send HUD restore command `{cmd}` ({e}). Stopping HUD restoration.")
+                break
 
 
 if __name__ == "__main__":
