@@ -490,7 +490,7 @@ def start_recording(req: RecordRequest):
             except Exception: pass
             
             candidate = {
-                "start_tick": req.start_tick - 384, "end_tick": final_tick + 32,
+                "start_tick": req.start_tick, "end_tick": final_tick,
                 "player_name": req.player_name,
                 "description": req.description or f"{req.player_name} Round {req.round_num}",
                 "round_num": req.round_num

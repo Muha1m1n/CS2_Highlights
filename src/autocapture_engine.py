@@ -134,8 +134,8 @@ class AutoCaptureEngine:
         candidate: Any,
         match_title: str = "Match",
         clip_index: int = 1,
-        warmup_ticks: int = 256,  # 4.0s lead-in
-        cooldown_ticks: int = 32  # 0.5s cooldown
+        warmup_ticks: int = 192,  # Exactly 3.0s lead-in before the kill tick
+        cooldown_ticks: int = 16  # 0.25s cooldown after the kill tick
     ) -> Optional[str]:
         """
         Records a single candidate highlight clip from a demo file.
@@ -145,8 +145,8 @@ class AutoCaptureEngine:
             candidate: `CandidateMoment` or dict with `start_tick`, `end_tick`, `player_name`, `description`.
             match_title: Prefix name for the match (e.g. "Match730").
             clip_index: Ordering rank number (`Highlight_1`).
-            warmup_ticks: Lead-in ticks before `start_tick` (default 256 = 4.0 seconds).
-            cooldown_ticks: Cooldown ticks after `end_tick` (default 32 = 0.5 seconds for instant cutoff).
+            warmup_ticks: Lead-in ticks before `start_tick` (default 192 = exactly 3.0 seconds).
+            cooldown_ticks: Cooldown ticks after `end_tick` (default 16 = 0.25 seconds for instant cutoff).
             
         Returns:
             Absolute file path of the saved and renamed `.mp4` clip, or None if failed.
@@ -276,7 +276,9 @@ class AutoCaptureEngine:
         candidates: List[Any],
         match_title: str = "Match",
         progress_callback: Optional[Any] = None,
-        close_apps_when_done: bool = True
+        close_apps_when_done: bool = True,
+        warmup_ticks: int = 192,  # Exactly 3.0s lead-in before kill tick
+        cooldown_ticks: int = 16  # 0.25s cooldown
     ) -> List[str]:
         """
         Sequentially captures a full playlist of candidate highlights.
@@ -288,6 +290,8 @@ class AutoCaptureEngine:
             progress_callback: Optional callback function `fn(current_idx, total_clips, latest_clip_path)`
                                for updating UI progress bars.
             close_apps_when_done: If True, automatically closes CS2 and OBS Studio when recording concludes.
+            warmup_ticks: Lead-in ticks before `start_tick` (default 192 = exactly 3.0 seconds).
+            cooldown_ticks: Cooldown ticks after `end_tick` (default 16 = 0.25 seconds).
                                
         Returns:
             List of absolute paths to all successfully recorded `.mp4` clips.
@@ -305,7 +309,9 @@ class AutoCaptureEngine:
                     demo_path=demo_path,
                     candidate=candidate,
                     match_title=match_title,
-                    clip_index=idx
+                    clip_index=idx,
+                    warmup_ticks=warmup_ticks,
+                    cooldown_ticks=cooldown_ticks
                 )
                 if clip_path:
                     saved_clips.append(clip_path)
@@ -408,8 +414,8 @@ if __name__ == "__main__":
                 final_tick = min(final_tick, death_row[0] + 16) # Include death tick plus 16 ticks (~0.25s) for instant cut
             conn.close()
             player_cands = [{
-                "start_tick": row[1] - 384,  # 6.0s before 1st kill + 4.0s warmup_ticks = 10.0s total lead-in before 1st kill!
-                "end_tick": final_tick + 32, # Stop instantly after final kill or death!
+                "start_tick": row[1],        # Exact 1st kill tick; warmup_ticks=192 handles exact 3.0s lead-in
+                "end_tick": final_tick,      # Exact end/death tick; cooldown_ticks=16 handles instant cut
                 "player_name": args.player,
                 "description": f"{args.player} Round {row[0]} ({row[3]} Kills High Score)",
                 "round_num": row[0]
