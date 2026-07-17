@@ -215,7 +215,7 @@ class AutoCaptureEngine:
         print("[AutoCaptureEngine] Waiting 1.2s for camera to settle cleanly on player before hiding UI...")
         time.sleep(1.2)
         
-        # 6. Now hide demo UI right before recording starts and pause demo at clean lead-in tick
+        # 6. Now hide demo UI and apply clean HUD settings
         print("[AutoCaptureEngine] Configuring HUD (showing ONLY killfeed via cl_draw_only_deathnotices 1, hiding FPS/telemetry & TrueView overlays)...")
         self.cs2.suppress_demo_ui()
         self.cs2.send_command("cl_draw_only_deathnotices 1")  # SHOW ONLY killfeed & hide all other HUD elements
@@ -230,25 +230,29 @@ class AutoCaptureEngine:
         self.cs2.send_command("tv_nochat 1")
         self.cs2.send_command("cl_spec_show_bindings 0")
         self.cs2.send_command("r_show_demo_ui 0")
-        self.cs2.pause_demo()
-        time.sleep(0.8)
 
-        # 6b. FINAL POV LOCK while demo is paused at exact lead-in tick
-        # This guarantees that even if a long seek jump reset the spectator slot right as pause_demo() ran,
-        # the camera locks firmly onto `player_name` in 1st-person POV right before OBS rolls Frame #1.
+        # 6b. Snap back to exact lead-in start tick (`actual_start` = 3.0s before first kill) and pause right before rolling OBS
+        # Because setup commands ate up wall-clock time while `resume_demo()` was playing, we jump directly to `actual_start` right here.
+        print(f"[AutoCaptureEngine] Snapping demo to exact pre-kill start tick {actual_start} (3.0s before first kill) and pausing...")
+        self.cs2.goto_tick(actual_start)
+        time.sleep(0.6)  # Give Source 2 a moment to snap within the loaded round buffer
+        self.cs2.pause_demo()
+        time.sleep(0.5)
+
+        # 6c. FINAL POV LOCK while demo is paused at exact lead-in tick `actual_start`
         if player_name:
             print(f"[AutoCaptureEngine] Re-asserting final 1st-person POV lock onto `{player_name}` while paused at tick {actual_start} right before rolling OBS camera...")
             self.cs2.lock_camera_to_player(player_name)
-            time.sleep(0.5)
+            time.sleep(0.4)
 
-        # 7. Now Start Recording (Frame #1 captures the clean pre-fight lead-in at least 3+ seconds before shooting starts!)
-        print("[AutoCaptureEngine] Rolling camera (Start OBS Recording)...")
+        # 7. Now Start Recording (Frame #1 captures the exact paused frame 3.0 seconds before the first kill!)
+        print(f"[AutoCaptureEngine] Rolling camera (Start OBS Recording at tick {actual_start})...")
         if not self.obs.start_recording():
             print("[AutoCaptureEngine ERROR] Failed to trigger OBS recording.")
             return None
 
-        print("[AutoCaptureEngine] Allowing 1.5s while paused for OBS encoder pipeline to fully initialize and capture clean lead-in frames...")
-        time.sleep(1.5)
+        print("[AutoCaptureEngine] Allowing 1.2s while paused for OBS encoder pipeline to fully initialize cleanly...")
+        time.sleep(1.2)
 
         self._set_mouse_lock(True)
         try:
