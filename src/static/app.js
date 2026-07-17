@@ -275,15 +275,13 @@ async function selectPlayer(name) {
         el.classList.toggle('active', el.textContent.includes(name));
     });
     
-    // Populate Side and Match Result Stats Banner
+    // Populate Combat Stats Banner
     const $stats = document.getElementById('playerStatsBanner');
     const p = state.players.find(x => x.name === name);
     if (p && $stats) {
         $stats.innerHTML = `
             <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap; width:100%;">
                 <div><span style="color:var(--text-dim); font-size:11px; text-transform:uppercase;">Player</span><br><b style="font-size:16px;">${escapeHtml(p.name)}</b></div>
-                <div style="width:1px; height:28px; background:rgba(255,255,255,0.1);"></div>
-                <div><span style="color:var(--text-dim); font-size:11px; text-transform:uppercase;">Match Result</span><br><b style="color:#10b981; font-size:15px;">🎖️ ${escapeHtml(p.match_result || 'Completed')}</b></div>
                 <div style="width:1px; height:28px; background:rgba(255,255,255,0.1);"></div>
                 <div><span style="color:var(--text-dim); font-size:11px; text-transform:uppercase;">Combat Stats</span><br><b style="font-size:15px;">⚔️ ${p.kills} Kills / ${p.deaths} Deaths (${p.kd} K/D)</b></div>
             </div>
