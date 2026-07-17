@@ -49,13 +49,36 @@ class CS2NetCon:
             print("[CS2NetCon] CS2 process (`cs2.exe`) is already running.")
             return True
 
-        print(f"[CS2NetCon] Launching CS2 with `-insecure -console -netconport {self.port}` via Steam AppLaunch...")
+        print(f"[CS2NetCon] Launching CS2 with `-insecure -console -netconport {self.port}`...")
         try:
-            # Check if direct Steam executable exists to use -applaunch (avoids permanent launch option edits)
-            steam_exe = r"C:\Program Files (x86)\Steam\steam.exe"
-            if sys.platform == "win32" and os.path.exists(steam_exe):
-                subprocess.Popen([steam_exe, "-applaunch", "730", "-insecure", "-console", "-netconport", str(self.port)])
-            else:
+            try:
+                from src.steam_config_manager import SteamConfigManager
+                steam_mgr = SteamConfigManager()
+                # Scour library folders for direct cs2.exe binary
+                cs2_binary = steam_mgr.find_cs2_executable()
+                if cs2_binary and os.path.exists(cs2_binary):
+                    print(f"[Auto-VAC Shield] Direct cs2.exe discovered: `{cs2_binary}`")
+                    print("[Auto-VAC Shield] Launching direct binary (Bypasses persistent Steam Launch Options)...")
+                    subprocess.Popen([
+                        cs2_binary,
+                        "-insecure",
+                        "-console",
+                        "-netconport", str(self.port),
+                        "-steam"
+                    ])
+                else:
+                    print("[Auto-VAC Shield] Direct cs2.exe not found, falling back to Steam AppLaunch...")
+                    steam_exe = r"C:\Program Files (x86)\Steam\steam.exe"
+                    if sys.platform == "win32" and os.path.exists(steam_exe):
+                        subprocess.Popen([steam_exe, "-applaunch", "730", "-insecure", "-console", "-netconport", str(self.port)])
+                    else:
+                        launch_url = f"steam://run/730//-insecure -console -netconport {self.port}"
+                        if sys.platform == "win32":
+                            os.startfile(launch_url)
+                        else:
+                            subprocess.Popen(["xdg-open", launch_url])
+            except Exception as inner_e:
+                print(f"[Auto-VAC Shield WARNING] Fallback launch triggered ({inner_e})...")
                 launch_url = f"steam://run/730//-insecure -console -netconport {self.port}"
                 if sys.platform == "win32":
                     os.startfile(launch_url)
@@ -106,7 +129,7 @@ class CS2NetCon:
         return False
 
     def disconnect(self):
-        """Closes the socket connection to CS2 NetCon cleanly."""
+        """Closes the socket connection to CS2 NetCon cleanly and scrubs VAC launch options."""
         if self.sock:
             try:
                 self.sock.close()
@@ -115,6 +138,11 @@ class CS2NetCon:
         self.sock = None
         self.connected = False
         print("[CS2NetCon] Disconnected from CS2 NetCon.")
+        try:
+            from src.steam_config_manager import SteamConfigManager
+            SteamConfigManager().clean_cs2_launch_options()
+        except Exception as e:
+            print(f"[Auto-VAC Shield WARNING] Could not run Steam config check on disconnect: {e}")
 
     def send_command(self, command: str, read_response: bool = False) -> str:
         """
