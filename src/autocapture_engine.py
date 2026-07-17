@@ -94,6 +94,16 @@ class AutoCaptureEngine:
         """Alias for disconnect_all()."""
         self.disconnect_all()
 
+    def close_all_apps(self):
+        """
+        Gracefully shuts down both Counter-Strike 2 (`cs2.exe`) and OBS Studio (`obs64.exe`).
+        Automatically scrubs any remaining VAC launch options before exiting.
+        """
+        print("\n[AutoCaptureEngine] Shutting down both Counter-Strike 2 and OBS Studio applications...")
+        self.cs2.close_cs2()
+        self.obs.close_obs()
+        print("[AutoCaptureEngine SUCCESS] All recording applications closed and launch options scrubbed.")
+
     def _extract_attr(self, item: Any, attr_name: str, default: Any = None) -> Any:
         """Helper to extract attribute from either CandidateMoment object or dict."""
         if isinstance(item, dict):
@@ -229,7 +239,8 @@ class AutoCaptureEngine:
         demo_path: str,
         candidates: List[Any],
         match_title: str = "Match",
-        progress_callback: Optional[Any] = None
+        progress_callback: Optional[Any] = None,
+        close_apps_when_done: bool = True
     ) -> List[str]:
         """
         Sequentially captures a full playlist of candidate highlights.
@@ -240,6 +251,7 @@ class AutoCaptureEngine:
             match_title: Title prefix for output clips.
             progress_callback: Optional callback function `fn(current_idx, total_clips, latest_clip_path)`
                                for updating UI progress bars.
+            close_apps_when_done: If True, automatically closes CS2 and OBS Studio when recording concludes.
                                
         Returns:
             List of absolute paths to all successfully recorded `.mp4` clips.
@@ -271,10 +283,17 @@ class AutoCaptureEngine:
                 # Short 1.5s breather between highlights
                 time.sleep(1.5)
         finally:
-            # Always restore normal HUD and disconnect at the end of a batch
+            # Always restore normal HUD before disconnecting or closing
             print("\n[AutoCaptureEngine] Batch complete. Restoring normal spectator HUD...")
-            self.cs2.restore_normal_hud()
-            self.disconnect_all()
+            try:
+                self.cs2.restore_normal_hud()
+            except Exception:
+                pass
+
+            if close_apps_when_done:
+                self.close_all_apps()
+            else:
+                self.disconnect_all()
 
         print(f"\n[AutoCaptureEngine SUMMARY] Successfully captured {len(saved_clips)}/{total} clips into `{self.output_dir}`!")
         return saved_clips

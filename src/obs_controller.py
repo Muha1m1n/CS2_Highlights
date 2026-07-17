@@ -78,6 +78,22 @@ class OBSController:
         self.connected = False
         print("[OBSController] Disconnected from OBS Studio.")
 
+    def close_obs(self):
+        """
+        Gracefully closes and shuts down any running OBS Studio instance (`obs64.exe`).
+        Disconnects the WebSocket client and terminates the OBS application process.
+        """
+        print("[OBSController] Closing and shutting down OBS Studio application...")
+        self.disconnect()
+        try:
+            import psutil
+            for proc in psutil.process_iter(['name']):
+                if proc.info['name'] and proc.info['name'].lower() in ('obs64.exe', 'obs.exe'):
+                    print(f"[OBSController] Terminating `obs64.exe` process (PID {proc.pid})...")
+                    proc.terminate()
+        except Exception as e:
+            print(f"[OBSController WARNING] Error during OBS process termination check: {e}")
+
     def disable_mouse_cursor_capture(self) -> bool:
         """
         Scans all inputs/sources in OBS Studio (Game Capture, Display Capture, Window Capture)

@@ -144,6 +144,30 @@ class CS2NetCon:
         except Exception as e:
             print(f"[Auto-VAC Shield WARNING] Could not run Steam config check on disconnect: {e}")
 
+    def close_cs2(self):
+        """
+        Gracefully shuts down the running Counter-Strike 2 application (`cs2.exe`).
+        First sends the `quit` console command via NetCon, then terminates any remaining process.
+        """
+        print("[CS2NetCon] Sending `quit` command to close CS2 application...")
+        if self.connected and self.sock:
+            try:
+                self.send_command("quit")
+                time.sleep(1.5)
+            except Exception:
+                pass
+        self.disconnect()
+        
+        # Ensure cs2.exe process is closed via psutil
+        try:
+            import psutil
+            for proc in psutil.process_iter(['name']):
+                if proc.info['name'] and proc.info['name'].lower() == 'cs2.exe':
+                    print(f"[CS2NetCon] Terminating remaining `cs2.exe` process (PID {proc.pid})...")
+                    proc.terminate()
+        except Exception as e:
+            print(f"[CS2NetCon WARNING] Error during process termination check: {e}")
+
     def send_command(self, command: str, read_response: bool = False) -> str:
         """
         Sends a raw console command string to CS2 over TCP.
