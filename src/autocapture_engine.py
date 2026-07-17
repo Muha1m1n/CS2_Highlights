@@ -7,9 +7,17 @@ record candidate highlights from a `.dem` replay file into crisp, cinematic `.mp
 """
 
 import os
+import sys
 import time
 import shutil
 from typing import List, Dict, Any, Optional, Union
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 try:
     from src.cs2_controller import CS2NetCon
@@ -252,9 +260,13 @@ class AutoCaptureEngine:
             print("[AutoCaptureEngine ERROR] OBS stopped, but raw video clip could not be located on disk.")
             return None
 
-        # 8. Sanitize description & move file to output folder
-        safe_desc = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in desc).strip('_')
-        safe_match = "".join(c if c.isalnum() or c in ('_', '-') else '_' for c in match_title).strip('_')
+        # 8. Sanitize description & move file to output folder (ASCII only to prevent UnicodeEncodeError)
+        safe_desc = "".join(c if (c.isascii() and (c.isalnum() or c in ('_', '-'))) else '_' for c in desc).strip('_')
+        safe_match = "".join(c if (c.isascii() and (c.isalnum() or c in ('_', '-'))) else '_' for c in match_title).strip('_')
+        if not safe_desc:
+            safe_desc = "highlight"
+        if not safe_match:
+            safe_match = "match"
         target_filename = f"{safe_match}_Clip_{clip_index:02d}_{safe_desc}.mp4"
         target_abspath = os.path.join(self.output_dir, target_filename)
 

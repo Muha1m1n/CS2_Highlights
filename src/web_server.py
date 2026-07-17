@@ -12,6 +12,12 @@ Opens: http://localhost:8000 (auto-launched in your default browser)
 
 import os
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 import json
 import time
 import uuid
