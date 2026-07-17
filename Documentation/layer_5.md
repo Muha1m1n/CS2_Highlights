@@ -118,12 +118,12 @@ To synchronize Counter-Strike 2 demo playback (`CS2NetCon` on port 2121) and OBS
 * **`disconnect_all()`**: Safely closes both controller connections upon batch completion and triggers `localconfig.vdf` launch option scrubbing.
 * **`capture_highlight(...)`**:
   Executes the precise, synchronized recording workflow for a single candidate highlight:
-  1. **Demo Load Check**: Issues `playdemo "<path>"` and allows a 6-second Source 2 entity loading window.
-  2. **Warmup Teleport**: Issues `demo_goto <actual_start>` with a 1.0s buffer and pauses.
-  3. **Cinematic HUD**: Invokes `setup_cinematic_hud(player_name)` (`cl_draw_only_deathnotices 0`, `spec_show_xray 0`, 1st-person camera lock).
-  4. **Camera Trigger**: Issues `self.obs.start_recording()` (with resolution and cursor capture enforcement).
-  5. **Continuous Maintenance Loop**: Issues `self.cs2.resume_demo()` at normal 1.0x speed. While the clip rolls for `duration_sec`, Python loops every **1.5 seconds** and invokes `self.cs2.suppress_demo_ui()` (`demoui_close`, `demoui false`) to guarantee the bottom replay timeline bar stays permanently hidden.
-  6. **Finalize & Sanitize**: Pauses CS2, issues `self.obs.stop_recording()`, and moves the sanitized clip to `clips/{match_title}_Clip_{index:02d}_{safe_description}.mp4`.
+  1. **Demo Load Check**: Issues `playdemo "<path>"` and allows a Source 2 entity loading window.
+  2. **Warmup Teleport (`10-Second Lead-In`)**: Issues `demo_goto <actual_start>` where `actual_start` is calculated `640 ticks` (`10.0 full seconds`) ahead of the first kill, ensuring clean movement and engagement buildup before any fighting begins.
+  3. **Dynamic Resolution & Zero Black Bars (`GetClientRect + OBS_BOUNDS_STRETCH`)**: Focuses Counter-Strike 2, queries its exact running viewport width and height (`cs2_w x cs2_h`), dynamically sets OBS canvas/output dimensions to match natively (`whether 4:3 or 16:9`), and enforces `OBS_BOUNDS_STRETCH` so the game capture fills 100% of the screen from edge to edge with **zero black bars**.
+  4. **Pre-UI Player Lock & Camera Settling**: Finds and locks the camera onto the target player (`spec_player "<player>"`) right while the demo UI is still active, waiting `1.2 seconds` for the 1st-person POV camera to settle cleanly onto the target.
+  5. **UI Suppression & Camera Trigger**: Executes `suppress_demo_ui()` (`cl_draw_only_deathnotices 1`, `spec_show_xray 0`, `demoui`) right before triggering `self.obs.start_recording()`.
+  6. **Finalize & Sanitize**: Rolls the camera cleanly for the engagement duration, stops recording, and moves the clip to `clips/{safe_description}.mp4`.
 * **`capture_playlist(...)`**: Iterates over a ranked list of candidate moments, reporting real-time progress to callbacks while ensuring graceful HUD cleanup and VAC scrubbing upon completion.
 
 ---

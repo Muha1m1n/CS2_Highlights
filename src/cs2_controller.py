@@ -12,6 +12,7 @@ import time
 import socket
 import psutil
 import subprocess
+import ctypes
 from typing import Optional
 
 
@@ -148,23 +149,52 @@ class CS2NetCon:
             if not hwnd:
                 hwnd = user32.FindWindowW("SDL_app", None)
             if hwnd:
-                # If window is minimized (IsIconic), restore it (SW_RESTORE = 9), otherwise show normal (SW_SHOW = 5)
+                # 1. First, autofocus to the game (restore if minimized and force foreground lock via thread attachment)
                 if user32.IsIconic(hwnd):
-                    user32.ShowWindow(hwnd, 9)
+                    user32.ShowWindow(hwnd, 9) # SW_RESTORE
                 else:
-                    user32.ShowWindow(hwnd, 5)
-                
-                user32.SetForegroundWindow(hwnd)
-                time.sleep(0.2)
-                
-                # Auto-click inside the window to grant full Win32 input focus and eliminate DirectX FPS throttling
+                    user32.ShowWindow(hwnd, 5) # SW_SHOW
+
+                fore_hwnd = user32.GetForegroundWindow()
+                if fore_hwnd != hwnd:
+                    fore_thread = user32.GetWindowThreadProcessId(fore_hwnd, None)
+                    app_thread = ctypes.windll.kernel32.GetCurrentThreadId()
+                    cs2_thread = user32.GetWindowThreadProcessId(hwnd, None)
+
+                    if fore_thread != app_thread and fore_thread != 0:
+                        user32.AttachThreadInput(app_thread, fore_thread, True)
+                    if cs2_thread != app_thread and cs2_thread != 0:
+                        user32.AttachThreadInput(app_thread, cs2_thread, True)
+
+                    # Tap Alt key if Windows is blocking focus switch
+                    VK_MENU = 0x12
+                    user32.keybd_event(VK_MENU, 0, 0, 0)
+                    user32.keybd_event(VK_MENU, 0, 0x0002, 0)
+
+                    user32.BringWindowToTop(hwnd)
+                    user32.SetForegroundWindow(hwnd)
+
+                    # Ensure window is placed at top of Z-order (HWND_TOP = 0)
+                    SWP_NOMOVE = 0x0002
+                    SWP_NOSIZE = 0x0001
+                    SWP_SHOWWINDOW = 0x0040
+                    user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW)
+
+                    if fore_thread != app_thread and fore_thread != 0:
+                        user32.AttachThreadInput(app_thread, fore_thread, False)
+                    if cs2_thread != app_thread and cs2_thread != 0:
+                        user32.AttachThreadInput(app_thread, cs2_thread, False)
+
+                time.sleep(0.3)  # Allow transition to settle so game is fully focused
+
+                # 2. Then auto-click inside the focused game window to grant full Win32/DirectX input focus
                 class RECT(ctypes.Structure):
                     _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
                 rect = RECT()
                 user32.GetWindowRect(hwnd, ctypes.byref(rect))
                 center_x = (rect.left + rect.right) // 2
                 center_y = (rect.top + rect.bottom) // 2
-                
+
                 user32.SetCursorPos(center_x, center_y)
                 time.sleep(0.1)
                 MOUSEEVENTF_LEFTDOWN = 0x0002
@@ -172,10 +202,11 @@ class CS2NetCon:
                 user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
                 time.sleep(0.05)
                 user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
-                
+
                 # Park mouse pointer out of sight at bottom-right corner of the window
                 user32.SetCursorPos(max(0, rect.right - 10), max(0, rect.bottom - 10))
-                print("[CS2NetCon SUCCESS] Automatically brought Counter-Strike 2 window to foreground and clicked to unlock full FPS!")
+                print("[CS2NetCon SUCCESS] First autofocused Counter-Strike 2 window to foreground, then auto-clicked to unlock full FPS!")
+                self.get_window_resolution()
                 return True
             else:
                 print("[CS2NetCon WARNING] Could not locate `Counter-Strike 2` window handle (`hwnd`).")
@@ -183,6 +214,36 @@ class CS2NetCon:
         except Exception as e:
             print(f"[CS2NetCon ERROR] Failed to focus CS2 window: {e}")
             return False
+
+    def get_window_resolution(self) -> tuple[int, int]:
+        """
+        Detects the exact running pixel dimensions (width, height) of the active Counter-Strike 2 window.
+        Uses GetClientRect to retrieve true rendered viewport resolution without window borders.
+        Whether the player is running 4:3 (e.g. 1280x960, 1024x768), 16:9 (1920x1080), or custom aspect ratios,
+        this ensures OBS can dynamically record at the exact same native resolution!
+        """
+        try:
+            user32 = ctypes.windll.user32
+            hwnd = user32.FindWindowW(None, "Counter-Strike 2")
+            if not hwnd:
+                hwnd = user32.FindWindowW("SDL_app", None)
+            if hwnd:
+                class RECT(ctypes.Structure):
+                    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+                rect = RECT()
+                user32.GetClientRect(hwnd, ctypes.byref(rect))
+                width = rect.right - rect.left
+                height = rect.bottom - rect.top
+                if width <= 0 or height <= 0:
+                    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                    width = rect.right - rect.left
+                    height = rect.bottom - rect.top
+                if width > 0 and height > 0:
+                    print(f"[CS2NetCon] Detected running Counter-Strike 2 viewport resolution: {width}x{height}")
+                    return (width, height)
+        except Exception as e:
+            print(f"[CS2NetCon WARNING] Could not query window resolution ({e}).")
+        return (1920, 1080)
 
     def disconnect(self):
         """Closes the socket connection to CS2 NetCon cleanly and scrubs VAC launch options."""

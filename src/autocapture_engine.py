@@ -134,8 +134,8 @@ class AutoCaptureEngine:
         candidate: Any,
         match_title: str = "Match",
         clip_index: int = 1,
-        warmup_ticks: int = 64,   # 1.0s lead-in
-        cooldown_ticks: int = 32 # 0.5s cooldown
+        warmup_ticks: int = 256,  # 4.0s lead-in
+        cooldown_ticks: int = 32  # 0.5s cooldown
     ) -> Optional[str]:
         """
         Records a single candidate highlight clip from a demo file.
@@ -145,7 +145,7 @@ class AutoCaptureEngine:
             candidate: `CandidateMoment` or dict with `start_tick`, `end_tick`, `player_name`, `description`.
             match_title: Prefix name for the match (e.g. "Match730").
             clip_index: Ordering rank number (`Highlight_1`).
-            warmup_ticks: Lead-in ticks before `start_tick` (default 64 = 1 second).
+            warmup_ticks: Lead-in ticks before `start_tick` (default 256 = 4.0 seconds).
             cooldown_ticks: Cooldown ticks after `end_tick` (default 32 = 0.5 seconds for instant cutoff).
             
         Returns:
@@ -164,7 +164,8 @@ class AutoCaptureEngine:
         # Calculate padded tick boundaries
         actual_start = max(0, start_tick - warmup_ticks)
         actual_end = end_tick + cooldown_ticks
-        duration_sec = max(2.0, (actual_end - actual_start) / self.tick_rate)
+        duration_ticks = actual_end - actual_start
+        duration_sec = duration_ticks / 64.0  # 64 tick rate standard
 
         print(f"\n=======================================================")
         print(f"[AutoCaptureEngine] Capturing Clip #{clip_index}: {desc}")
@@ -185,36 +186,44 @@ class AutoCaptureEngine:
                     break
             time.sleep(2.0)  # Buffer after level settle before teleporting
 
-        # 3. Teleport to warmup tick and pause
-        print(f"[AutoCaptureEngine] Teleporting demo to warmup tick {actual_start}...")
+        # 3. Teleport demo to exact start tick and let it play for 0.5s so entities load cleanly
+        print(f"[AutoCaptureEngine] Teleporting demo to pre-fight tick {actual_start}...")
         self.cs2.goto_tick(actual_start)
-        self.cs2.pause_demo()
-        time.sleep(1.0)  # Allow Source 2 frame renderer to settle
+        self.cs2.resume_demo()
+        time.sleep(0.5)
 
-        # 4. While demo is PAUSED at warmup tick: bring CS2 to foreground, Disable UI, and Find/Lock Player
-        self.obs.set_1080p_60fps()
+        # 4. Bring CS2 to foreground, detect its exact running resolution (4:3, 16:9, etc.), and configure OBS canvas dynamically!
         self.cs2.focus_cs2_window()
         time.sleep(0.3)
+        cs2_w, cs2_h = self.cs2.get_window_resolution()
+        print(f"[AutoCaptureEngine] Configuring OBS to match detected CS2 player resolution: {cs2_w}x{cs2_h}...")
+        self.obs.set_recording_resolution(width=cs2_w, height=cs2_h, fps=60)
         
-        # Find/Lock Player right while paused
         if player_name:
+            print(f"[AutoCaptureEngine] Finding and locking camera onto desired player `{player_name}` FIRST before hiding UI...")
             self.cs2.lock_camera_to_player(player_name)
         
-        # Disable UI right while paused (Option A: close demo scrubber, disable X-Ray, keep only killfeed)
+        # 5. Wait some time before hiding UI so the camera settles cleanly onto target player
+        print("[AutoCaptureEngine] Waiting 1.2s for camera to settle cleanly on player before hiding UI...")
+        time.sleep(1.2)
+        
+        # 6. Now hide demo UI right before recording starts and pause demo at clean lead-in tick
+        print("[AutoCaptureEngine] Hiding demo UI (cl_draw_only_deathnotices 1, spec_show_xray 0, demoui)...")
         self.cs2.suppress_demo_ui()
         self.cs2.send_command("cl_draw_only_deathnotices 1")
         self.cs2.send_command("cl_drawhud 1")
         self.cs2.send_command("spec_show_xray 0")
         self.cs2.pause_demo()
+        time.sleep(1.0)
 
-        print("[AutoCaptureEngine] Pausing demo for 1.5s after selecting player & hiding UI before starting recording...")
-        time.sleep(1.5) # Exact user request: wait 1.5 seconds while paused after player & UI prep
-
-        # 5. Now Start Recording (Frame #1 captures the clean, stable warmup tick before any gameplay occurs!)
+        # 7. Now Start Recording (Frame #1 captures the clean pre-fight lead-in at least 5+ seconds before shooting starts!)
         print("[AutoCaptureEngine] Rolling camera (Start OBS Recording)...")
         if not self.obs.start_recording():
             print("[AutoCaptureEngine ERROR] Failed to trigger OBS recording.")
             return None
+
+        print("[AutoCaptureEngine] Allowing 1.5s while paused for OBS encoder pipeline to fully initialize and capture clean lead-in frames...")
+        time.sleep(1.5)
 
         self._set_mouse_lock(True)
         try:
@@ -363,19 +372,34 @@ if __name__ == "__main__":
         # Direct DB high score fallback if no ranked objects found
         conn = sqlite3.connect("data/processed/test_matches.db")
         c = conn.cursor()
-        row = c.execute("""
+        match_hash_clause = ""
+        params = [f"%{args.player}%"]
+        file_hash = None
+        if args.demo and os.path.exists(args.demo):
+            try:
+                from src.database import CS2Database
+                file_hash = CS2Database.get_file_hash(args.demo)
+                match_hash_clause = " AND match_hash = ?"
+                params.append(file_hash)
+            except Exception:
+                pass
+
+        row = c.execute(f"""
             SELECT round_number, min(tick), max(tick), count(*) as kills
-            FROM kills WHERE attacker_name LIKE ? GROUP BY round_number ORDER BY kills DESC LIMIT 1
-        """, (f"%{args.player}%",)).fetchone()
+            FROM kills WHERE attacker_name LIKE ?{match_hash_clause} GROUP BY round_number ORDER BY kills DESC LIMIT 1
+        """, params).fetchone()
         if row:
             # Exact user request: stop instantly when kills complete or player dies
-            death_row = c.execute("SELECT min(tick) FROM kills WHERE user_name LIKE ? AND round_number = ?", (f"%{args.player}%", row[0])).fetchone()
+            death_params = [f"%{args.player}%", row[0]]
+            if match_hash_clause:
+                death_params.append(file_hash)
+            death_row = c.execute(f"SELECT min(tick) FROM kills WHERE user_name LIKE ? AND round_number = ?{match_hash_clause}", death_params).fetchone()
             final_tick = row[2]
             if death_row and death_row[0]:
                 final_tick = min(final_tick, death_row[0] + 16) # Include death tick plus 16 ticks (~0.25s) for instant cut
             conn.close()
             player_cands = [{
-                "start_tick": row[1] - 64,
+                "start_tick": row[1] - 384,  # 6.0s before 1st kill + 4.0s warmup_ticks = 10.0s total lead-in before 1st kill!
                 "end_tick": final_tick + 32, # Stop instantly after final kill or death!
                 "player_name": args.player,
                 "description": f"{args.player} Round {row[0]} ({row[3]} Kills High Score)",

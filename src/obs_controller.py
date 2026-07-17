@@ -128,29 +128,55 @@ class OBSController:
             print(f"[OBSController WARNING] Could not modify input settings for mouse cursor ({e}).")
             return False
 
-    def set_1080p_60fps(self) -> bool:
+    def set_recording_resolution(self, width: int = 1920, height: int = 1080, fps: int = 60) -> bool:
         """
-        Enforces 1080p (1920x1080) at 60 FPS recording settings on OBS Studio,
-        and automatically suppresses mouse cursor across all capture sources.
+        Dynamically configures OBS Studio's canvas (Base & Output width/height) to match the player's exact CS2 window resolution.
+        Whether the player is on 4:3 (e.g. 1280x960, 1024x768), 16:9 (1920x1080), or any custom resolution,
+        the exported .mp4 video output will match that exact resolution and aspect ratio natively at 60 FPS!
         """
         if not self.connected or not self.client:
             if not self.connect(max_retries=1):
                 return False
         try:
             self.client.call(requests.SetVideoSettings(
-                baseWidth=1920,
-                baseHeight=1080,
-                outputWidth=1920,
-                outputHeight=1080,
-                fpsNumerator=60,
+                baseWidth=int(width),
+                baseHeight=int(height),
+                outputWidth=int(width),
+                outputHeight=int(height),
+                fpsNumerator=int(fps),
                 fpsDenominator=1
             ))
-            print("[OBSController] Recording resolution enforced: 1920x1080 (1080p) @ 60 FPS.")
+            print(f"[OBSController] Recording resolution dynamically enforced: {width}x{height} @ {fps} FPS.")
             self.disable_mouse_cursor_capture()
+            # Ensure every capture source in the active scene fills the exact canvas width/height cleanly without cropping
+            try:
+                scene_name = self.client.call(requests.GetCurrentProgramScene()).getCurrentProgramSceneName()
+                items = self.client.call(requests.GetSceneItemList(sceneName=scene_name)).getSceneItems()
+                for item in items:
+                    kind = item.get("inputKind", "")
+                    if kind in ["game_capture", "monitor_capture", "window_capture"]:
+                        self.client.call(requests.SetSceneItemTransform(
+                            sceneName=scene_name,
+                            sceneItemId=item["sceneItemId"],
+                            sceneItemTransform={
+                                "boundsType": "OBS_BOUNDS_STRETCH",  # Stretches source edge-to-edge across canvas: ZERO black bars!
+                                "boundsWidth": float(width),
+                                "boundsHeight": float(height),
+                                "positionX": 0.0,
+                                "positionY": 0.0
+                            }
+                        ))
+                print(f"[OBSController SUCCESS] Auto-scaled screen capture source to fill 100% of the {width}x{height} canvas cleanly.")
+            except Exception as item_e:
+                print(f"[OBSController WARNING] Could not auto-scale scene items: {item_e}")
             return True
         except Exception as e:
-            print(f"[OBSController WARNING] Could not set 1080p resolution ({e}). Using existing OBS settings.")
+            print(f"[OBSController WARNING] Could not set {width}x{height} resolution ({e}). Using existing OBS settings.")
             return False
+
+    def set_1080p_60fps(self, width: int = 1920, height: int = 1080) -> bool:
+        """Backward-compatible alias for set_recording_resolution."""
+        return self.set_recording_resolution(width=width, height=height, fps=60)
 
     def get_record_status(self) -> Dict[str, Any]:
         """
