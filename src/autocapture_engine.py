@@ -208,11 +208,20 @@ class AutoCaptureEngine:
         time.sleep(1.2)
         
         # 6. Now hide demo UI right before recording starts and pause demo at clean lead-in tick
-        print("[AutoCaptureEngine] Hiding demo UI (cl_draw_only_deathnotices 1, spec_show_xray 0, demoui)...")
+        print("[AutoCaptureEngine] Configuring HUD (showing player health/weapon HUD, hiding FPS/telemetry & TrueView overlays)...")
         self.cs2.suppress_demo_ui()
-        self.cs2.send_command("cl_draw_only_deathnotices 1")
+        self.cs2.send_command("cl_draw_only_deathnotices 0")  # SHOW full player health, armor, ammo, & weapon HUD
         self.cs2.send_command("cl_drawhud 1")
         self.cs2.send_command("spec_show_xray 0")
+        self.cs2.send_command("cl_showfps 0")
+        self.cs2.send_command("cq_netgraph 0")
+        self.cs2.send_command("cl_hud_telemetry_frametime_show 0")
+        self.cs2.send_command("cl_hud_telemetry_ping_show 0")
+        self.cs2.send_command("cl_hud_telemetry_net_misdelivery_show 0")
+        self.cs2.send_command("spec_show_trueview 0")
+        self.cs2.send_command("tv_nochat 1")
+        self.cs2.send_command("cl_spec_show_bindings 0")
+        self.cs2.send_command("r_show_demo_ui 0")
         self.cs2.pause_demo()
         time.sleep(1.0)
 

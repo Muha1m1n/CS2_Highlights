@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClipperCS2</title>
+    <meta name="description" content="CS2 highlight detection, ML ranking, and automated recording.">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container" id="app">
+        <!-- ===== HOME SCREEN ===== -->
+        <div class="screen active" id="homeScreen">
+            <div class="home-center">
+                <h1 class="app-title">ClipperCS2</h1>
+                <p class="app-subtitle">Autonomous Highlight Detection & Recording Engine</p>
+
+                <div class="home-cards">
+                    <div class="home-card" onclick="goToGenerate()">
+                        <div class="home-card-icon">+</div>
+                        <div class="home-card-title">Generate New Match</div>
+                        <div class="home-card-desc">Connect to your CS2 demo folder, select a .dem file, and parse it into the database</div>
+                    </div>
+                    <div class="home-card" onclick="goToMatches()">
+                        <div class="home-card-icon">&#9776;</div>
+                        <div class="home-card-title">View Generated Matches</div>
+                        <div class="home-card-desc">Browse already-parsed matches, select players, view highlights, and record clips</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== GENERATE SCREEN ===== -->
+        <div class="screen" id="generateScreen">
+            <div class="screen-header">
+                <button class="back-btn" onclick="goHome()">&#8592; Back</button>
+                <h2 class="screen-title">Generate New Match</h2>
+            </div>
+
+            <div class="folder-bar">
+                <label class="folder-label">Demo Folder</label>
+                <div class="folder-input-row">
+                    <input type="text" class="folder-input" id="demoFolderInput" placeholder="C:\Program Files (x86)\Steam\...\replays">
+                    <button class="btn-scan" onclick="scanDemoFolder()">Scan</button>
+                </div>
+            </div>
+
+            <div class="demo-list" id="demoList">
+                <div class="empty-state">
+                    <div class="empty-state-icon">&#128194;</div>
+                    <div class="empty-state-text">Enter your CS2 demo replays folder and click Scan</div>
+                </div>
+            </div>
+
+            <!-- Parse progress toast -->
+            <div class="parse-toast" id="parseToast">
+                <div class="toast-header">
+                    <div class="recording-dot" id="parseDot"></div>
+                    <span id="parseTitle">Parsing...</span>
+                </div>
+                <div class="toast-messages" id="parseMessages"></div>
+            </div>
+        </div>
+
+        <!-- ===== MATCHES SCREEN ===== -->
+        <div class="screen" id="matchesScreen">
+            <div class="screen-header">
+                <button class="back-btn" onclick="goHome()">&#8592; Back</button>
+                <h2 class="screen-title">Generated Matches</h2>
+            </div>
+            <div class="match-grid" id="matchGrid">
+                <div class="loading-state"><div class="spinner"></div><span>Loading matches...</span></div>
+            </div>
+        </div>
+
+        <!-- ===== MATCH DETAIL SCREEN ===== -->
+        <div class="screen" id="detailScreen">
+            <div class="screen-header">
+                <button class="back-btn" onclick="goToMatches()">&#8592; Back to Matches</button>
+                <div style="flex-grow: 1; display: flex; align-items: center; justify-content: space-between;">
+                    <h2 class="screen-title" id="detailTitle">Match Details</h2>
+                    <div id="matchInfoBanner" style="font-size: 14px; font-weight: 600; background: rgba(255,255,255,0.06); padding: 6px 14px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1);"></div>
+                </div>
+            </div>
+
+            <!-- Player Selector -->
+            <div class="player-bar" id="playerBar">
+                <div class="player-bar-label">Select Player</div>
+                <div class="player-chips" id="playerChips"></div>
+            </div>
+
+            <!-- Player Side & Result Banner -->
+            <div id="playerStatsBanner" style="display: none; background: linear-gradient(135deg, rgba(30,35,50,0.8), rgba(20,25,40,0.8)); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 12px 18px; margin-bottom: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;"></div>
+
+            <!-- Tab Bar -->
+            <div class="tab-bar" id="tabBar">
+                <button class="tab-btn active" id="tabHighlights" onclick="switchTab('highlights')">Best Highlights</button>
+                <button class="tab-btn" id="tabRounds" onclick="switchTab('rounds')">By Round</button>
+            </div>
+
+            <!-- Content -->
+            <div class="content-area" id="contentArea">
+                <div class="empty-state">
+                    <div class="empty-state-icon">&#128100;</div>
+                    <div class="empty-state-text">Select a player to view their highlights</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recording Toast -->
+    <div class="recording-toast" id="recordingToast">
+        <div class="toast-header">
+            <div class="recording-dot" id="toastDot"></div>
+            <span id="toastTitle">Recording...</span>
+        </div>
+        <div class="toast-messages" id="toastMessages"></div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

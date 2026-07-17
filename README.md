@@ -42,8 +42,8 @@ Layer 4: Match Narrative & Climax Analyzer (`src/narrative.py`)
 Layer 5: Syncing, Auto-VAC Shield & Video Clipper (`src/autocapture_engine.py`, `src/cs2_controller.py`, `src/obs_controller.py`)
         │  orchestrates CS2 NetCon TCP (2121) + OBS Studio WebSocket (4455) for automated 1080p60 recording
         ▼
-Layer 6: Interactive Web Dashboard (`src/web_server.py`)
-           provides real-time progress bars, WebSocket status updates, and interactive HTML playback cards
+Layer 6: Interactive Local Desktop App & SPA Dashboard (`src/desktop_app.py`, `src/web_server.py`)
+           provides standalone native OS window (`PyWebView`), dynamic port discovery (`get_free_port`), per-clip Side/Outcome badges, and double-click launchers (`.bat` / `.vbs`)
 ```
 
 ---
@@ -56,6 +56,8 @@ ClipperCS2/
 │   ├── raw/                 # Raw match videos (.mp4) and demos (.dem)
 │   └── processed/           # SQLite database cache (`cs2_highlights.db`) and parsing logs
 ├── clips/                   # Output directory for finished 1080p60 MP4 highlights (`.gitignore`d)
+├── Launch_ClipperCS2.bat    # Standalone double-click Windows batch launcher
+├── Launch_ClipperCS2_Silent.vbs # Zero-terminal silent double-click launcher
 ├── src/
 │   ├── parser.py            # Layer 1: Rust-backed demoparser2 wrapper & event standardization
 │   ├── database.py          # Layer 2: SQLite schema, match indexing, and event caching
@@ -65,16 +67,20 @@ ClipperCS2/
 │   ├── cs2_controller.py    # Layer 5: CS2 NetCon TCP (port 2121) command interface & HUD cleanup
 │   ├── obs_controller.py    # Layer 5: OBS Studio WebSocket (port 4455) controller & cursor suppression
 │   ├── autocapture_engine.py # Layer 5: Master orchestration loop connecting CS2 and OBS
-│   └── clipper.py           # Layer 5: FFmpeg stream-copy video slicer & async worker queue
+│   ├── clipper.py           # Layer 5: FFmpeg stream-copy video slicer & async worker queue
+│   ├── desktop_app.py       # Layer 6: PyWebView native desktop window container & port auto-discovery
+│   ├── web_server.py        # Layer 6: FastAPI server handling demo scanning and per-clip badge data
+│   └── static/              # Layer 6: Dark-mode SPA (`index.html`, `style.css`, `app.js`)
 ├── Documentation/
 │   ├── layer_1.md           # Technical specs for Layer 1 parser and round-pairing algorithms
 │   ├── layer_2.md           # Technical specs for Layer 2 SQLite database and feature extraction
 │   ├── layer_3.md           # Technical specs for Layer 3 machine learning scorer & candidate filters
 │   ├── layer_4.md           # Technical specs for Layer 4 narrative context analyzer
-│   └── layer_5.md           # Technical specs for Layer 5 Auto-VAC Shield, NetCon, OBS, and FFmpeg
+│   ├── layer_5.md           # Technical specs for Layer 5 Auto-VAC Shield, NetCon, OBS, and FFmpeg
+│   └── layer_6.md           # Technical specs for Layer 6 Native Desktop Application & SPA Dashboard
 ├── test_steam_config_manager.py # Unit test suite verifying VDF scrubbing and cs2.exe discovery
 ├── test_layer_5.py          # Unit test suite verifying ClipperQueue, math offsets, and duck-typing
-└── requirements.txt         # Python project dependencies (`demoparser2`, `obswebsocket`, `psutil`)
+└── requirements.txt         # Python project dependencies (`demoparser2`, `obswebsocket`, `psutil`, `pywebview`)
 ```
 
 ---

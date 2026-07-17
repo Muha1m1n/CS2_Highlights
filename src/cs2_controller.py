@@ -369,17 +369,29 @@ class CS2NetCon:
     def setup_cinematic_hud(self, player_name: Optional[str] = None):
         """
         Applies clean, esports-grade HUD configurations:
-        - Hides radar, inventory, health/ammo bars; leaves ONLY kill feed in top-right (`cl_draw_only_deathnotices 1`).
+        - Shows full player HUD including health, ammo, weapon, and killfeed (`cl_draw_only_deathnotices 0`).
+        - Disables all top-right FPS, netgraph, telemetry (`cl_showfps 0`), and TrueView overlays.
         - Disables X-Ray wallhacks (`spec_show_xray 0`) for an authentic live-match feel.
         - Optionally locks camera to `player_name` in First-Person view (`spec_mode 1`).
         """
-        print("[CS2NetCon] Applying spectator HUD settings (`cl_draw_only_deathnotices 1`, No X-Ray)...")
+        print("[CS2NetCon] Applying clean HUD settings (full health/weapon HUD, hiding FPS/telemetry overlays)...")
         commands = [
-            "sv_cheats 1",                   # Required for offline HUD tweaks
-            "cl_draw_only_deathnotices 1",   # 1 = Leaves ONLY kill feed in top-right
-            "cl_drawhud 1",                  # Ensure HUD panels are enabled
-            "spec_show_xray 0",              # Disables X-Ray player outlines through walls for authentic feel
-            "demo_timescale 1.0",            # Ensure normal speed
+            "sv_cheats 1",
+            "cl_draw_only_deathnotices 0",                   # 0 = SHOW player health, weapon, ammo, and killfeed
+            "cl_drawhud 1",                                  # Ensure HUD panels are enabled
+            "spec_show_xray 0",                              # Disables X-Ray for authentic feel
+            "demo_timescale 1.0",                            # Ensure normal speed
+            "cl_showfps 0",                                  # Hide FPS overlay
+            "cq_netgraph 0",                                 # Hide netgraph
+            "cl_hud_telemetry_frametime_show 0",             # Hide frame time / FPS telemetry overlay
+            "cl_hud_telemetry_ping_show 0",                  # Hide ping overlay
+            "cl_hud_telemetry_net_misdelivery_show 0",       # Hide packet loss overlay
+            "cl_hud_telemetry_serverrecvmargin_graph_show 0", # Hide recv margin graph
+            "spec_show_trueview 0",                          # Hide TrueView / overlay text
+            "tv_nochat 1",                                   # Hide chat overlays
+            "cl_spec_show_bindings 0",                       # Hide spectator binding hints
+            "r_show_demo_ui 0",                              # Hide bottom demo timeline bar
+            "demo_ui_mode 0"
         ]
         
         if player_name:
@@ -392,28 +404,47 @@ class CS2NetCon:
 
     def suppress_demo_ui(self):
         """
-        Option A (Killfeed + One-time demoui Toggle):
-        Executes `cl_draw_only_deathnotices 1` & `spec_show_xray 0` to hide radar/ammo/health/xray while leaving ONLY the killfeed,
-        then sends `demoui` exactly once right when called to toggle closed the bottom demo timeline bar.
+        Executes `cl_draw_only_deathnotices 0` to show full player health & weapon HUD,
+        while hiding demo scrubber bar and all top-right FPS/telemetry overlays.
         """
-        self.send_command("cl_draw_only_deathnotices 1")
-        self.send_command("spec_show_xray 0")
-        self.send_command("demoui")
+        commands = [
+            "cl_draw_only_deathnotices 0",                   # Show health, ammo, weapon
+            "cl_drawhud 1",
+            "spec_show_xray 0",
+            "cl_showfps 0",
+            "cq_netgraph 0",
+            "cl_hud_telemetry_frametime_show 0",
+            "cl_hud_telemetry_ping_show 0",
+            "cl_hud_telemetry_net_misdelivery_show 0",
+            "spec_show_trueview 0",
+            "tv_nochat 1",
+            "cl_spec_show_bindings 0",
+            "r_show_demo_ui 0",
+            "demo_ui_mode 0",
+            "demoui"
+        ]
+        for cmd in commands:
+            self.send_command(cmd)
 
     def lock_camera_to_player(self, player_name: str):
         """
-        Locks spectator camera directly into `player_name`'s First-Person (In-Eye / POV) view.
-        Sends Source 2 `spec_player` alongside `cl_draw_only_deathnotices 1` and `spec_show_xray 0`.
+        Locks spectator camera directly into `player_name`'s First-Person (POV) view.
+        Enforces `cl_draw_only_deathnotices 0` so player health & weapon HUD are visible, while disabling FPS/TrueView overlays.
         """
         if not player_name:
             return
-        print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (enforcing cl_draw_only_deathnotices 1 & no X-Ray)...")
+        print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (enforcing health HUD & hiding telemetry)...")
         for _ in range(6):
             self.send_command("spec_mode 1")                         # First person POV
             self.send_command(f'spec_player "{player_name}"')        # Lock view with quotes
             self.send_command(f"spec_player {player_name}")          # Lock view without quotes
-            self.send_command("cl_draw_only_deathnotices 1")         # Disable HUD alongside player lock
+            self.send_command("cl_draw_only_deathnotices 0")         # SHOW full player health & weapon HUD
+            self.send_command("cl_drawhud 1")
             self.send_command("spec_show_xray 0")                    # Turn off X-Ray mode
+            self.send_command("cl_showfps 0")                        # Disable top-right FPS overlay
+            self.send_command("cl_hud_telemetry_frametime_show 0")   # Disable top-right telemetry
+            self.send_command("spec_show_trueview 0")                # Disable TrueView overlay
+            self.send_command("r_show_demo_ui 0")
             self.send_command("spec_mode 1")                         # Re-assert first person after slot/name selection
             time.sleep(0.3)
 

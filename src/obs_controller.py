@@ -94,6 +94,63 @@ class OBSController:
         except Exception as e:
             print(f"[OBSController WARNING] Error during OBS process termination check: {e}")
 
+    def fix_duplicate_audio(self) -> bool:
+        """
+        Prevents double audio in recorded clips by ensuring only ONE audio source captures CS2 game sound.
+        
+        The Problem: OBS often has both 'Desktop Audio' (captures all system audio including CS2)
+        AND 'Game Capture' with its own audio capture enabled, or 'Mic/Aux' picking up system audio.
+        This causes the same CS2 gunfire/music to appear TWICE in the exported .mp4 (echo/phasing).
+        
+        The Fix: Mute 'Mic/Aux', disable audio on 'Game Capture', and keep only 'Desktop Audio' active.
+        """
+        if not self.connected or not self.client:
+            if not self.connect(max_retries=1):
+                return False
+        try:
+            inputs_res = self.client.call(requests.GetInputList())
+            inputs = inputs_res.getInputs() if hasattr(inputs_res, 'getInputs') else inputs_res.get('inputs', [])
+            fixed_count = 0
+            for item in inputs:
+                input_name = item.get('inputName') if isinstance(item, dict) else getattr(item, 'inputName', None)
+                input_kind = item.get('inputKind') if isinstance(item, dict) else getattr(item, 'inputKind', None)
+                if not input_name:
+                    continue
+                
+                name_lower = str(input_name).lower()
+                kind_lower = str(input_kind).lower() if input_kind else ""
+                
+                # 1. Mute Mic/Aux (prevents microphone or secondary audio device from recording)
+                if 'mic' in name_lower or 'aux' in name_lower:
+                    try:
+                        self.client.call(requests.SetInputMute(inputName=input_name, inputMuted=True))
+                        fixed_count += 1
+                        print(f"[OBSController] Muted audio source: `{input_name}` (prevents duplicate audio)")
+                    except Exception:
+                        pass
+                
+                # 2. Disable audio capture on Game Capture (it duplicates Desktop Audio)
+                elif 'game' in kind_lower or 'game' in name_lower:
+                    try:
+                        self.client.call(requests.SetInputSettings(
+                            inputName=input_name,
+                            inputSettings={"capture_audio": False},
+                            overlay=True
+                        ))
+                        fixed_count += 1
+                        print(f"[OBSController] Disabled audio on Game Capture: `{input_name}` (Desktop Audio handles CS2 sound)")
+                    except Exception:
+                        pass
+            
+            if fixed_count > 0:
+                print(f"[OBSController SUCCESS] Fixed duplicate audio: muted/disabled {fixed_count} secondary audio source(s). Only Desktop Audio remains active.")
+            else:
+                print("[OBSController] No duplicate audio sources detected.")
+            return True
+        except Exception as e:
+            print(f"[OBSController WARNING] Could not fix duplicate audio ({e}).")
+            return False
+
     def disable_mouse_cursor_capture(self) -> bool:
         """
         Scans all inputs/sources in OBS Studio (Game Capture, Display Capture, Window Capture)
@@ -148,6 +205,7 @@ class OBSController:
             ))
             print(f"[OBSController] Recording resolution dynamically enforced: {width}x{height} @ {fps} FPS.")
             self.disable_mouse_cursor_capture()
+            self.fix_duplicate_audio()
             # Ensure every capture source in the active scene fills the exact canvas width/height cleanly without cropping
             try:
                 scene_name = self.client.call(requests.GetCurrentProgramScene()).getCurrentProgramSceneName()

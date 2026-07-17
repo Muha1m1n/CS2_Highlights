@@ -164,3 +164,30 @@ Asynchronous background worker queue (`threading.Thread` + `queue.Queue`) design
 | `src/clipper.py` | ✅ **Complete** | FFmpeg stream-copy clipper and asynchronous background task queue. | `subprocess`, `threading`, `queue` |
 | `test_steam_config_manager.py` | ✅ **Complete** | Unit test suite verifying VDF scrubbing and cs2.exe binary discovery. | `unittest` |
 | `test_layer_5.py` | ✅ **Complete** | Comprehensive unit test suite verifying anchor calibration, duck-typing, and queue lifecycle. | `unittest` |
+
+---
+
+## 6. Clean HUD Setup (`cl_draw_only_deathnotices 0`) & Telemetry/TrueView Suppression
+
+To ensure broadcast-grade recordings with clear player information (`Player Health, Armor, Ammo, Equipped Weapon, and Killfeed`) while suppressing unwanted engine telemetry overlays, Layer 5 enforces the following precise sequence in `src/cs2_controller.py` and `src/autocapture_engine.py` during pre-record setup:
+
+### 1. Enabling Full Player HUD
+Instead of stripping the entire UI (`cl_draw_only_deathnotices 1`), the engine explicitly sets:
+* **`cl_draw_only_deathnotices 0`**: Keeps bottom-left Health/Armor bar, bottom-right Weapon (`Autumn` / Glock / AK-47) and Ammo panels, plus top-right Killfeed active during recording.
+* **`cl_drawhud 1`**: Guarantees core viewport HUD rendering is enabled.
+
+### 2. Disabling Top-Right Telemetry & Replay Overlays
+To eliminate text overlays (`Max 9.4ms | Avg 177FPS`, `TrueView Disabled - old demo`), the following commands are dispatched via NetCon before rolling camera:
+```c
+cl_showfps 0                                    // Hides traditional frame rate counter
+cq_netgraph 0                                   // Hides Source 2 network graph
+cl_hud_telemetry_frametime_show 0               // Hides frame timing telemetry
+cl_hud_telemetry_ping_show 0                    // Hides latency/ping overlay
+cl_hud_telemetry_net_misdelivery_show 0         // Hides packet loss telemetry
+cl_hud_telemetry_serverrecvmargin_graph_show 0  // Hides server margin graph
+spec_show_trueview 0                            // Hides spectator TrueView / demo info overlay
+tv_nochat 1                                     // Hides spectator chat overlays
+cl_spec_show_bindings 0                         // Hides binding shortcut hints
+r_show_demo_ui 0                                // Hides bottom demo timeline bar
+demo_ui_mode 0
+```
