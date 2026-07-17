@@ -80,7 +80,7 @@ ClipperCS2/
 │   └── layer_6.md           # Technical specs for Layer 6 Native Desktop Application & SPA Dashboard
 ├── test_steam_config_manager.py # Unit test suite verifying VDF scrubbing and cs2.exe discovery
 ├── test_layer_5.py          # Unit test suite verifying ClipperQueue, math offsets, and duck-typing
-└── requirements.txt         # Python project dependencies (`demoparser2`, `obswebsocket`, `psutil`, `pywebview`)
+└── requirements.txt         # Python project dependencies (`demoparser2`, `obs-websocket-py`, `psutil`, `pywebview`)
 ```
 
 ---

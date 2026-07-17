@@ -25,7 +25,7 @@ To allow instant double-click startup directly from the desktop or repository ro
 1. **`Install_and_Run.bat` (`1-Click All-in-One Setup & Launcher`)**:
    The primary entry point for new users or friends. When double-clicked:
    * **Verifies Python**: Checks if Python 3.10+ is installed (`opens official Python download directly if missing`).
-   * **Creates Isolated Environment**: Spawns an isolated `.venv` directory and installs `requirements.txt` (`demoparser2`, `pywebview`, `fastapi`, `obswebsocket`).
+   * **Creates Isolated Environment**: Spawns an isolated `.venv` directory and installs `requirements.txt` (`demoparser2`, `pywebview`, `fastapi`, `obs-websocket-py`).
    * **Creates Desktop Icon**: Automatically creates a `ClipperCS2.lnk` shortcut on the Windows Desktop.
    * **Launches App Immediately**: Starts up the application right away.
 2. **`Launch_ClipperCS2.bat`**:

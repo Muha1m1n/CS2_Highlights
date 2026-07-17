@@ -156,10 +156,10 @@ Asynchronous background worker queue (`threading.Thread` + `queue.Queue`) design
 
 | File | Status | Purpose | Key Dependencies |
 | :--- | :---: | :--- | :--- |
-| `test_obs_connection.py` | ✅ **Complete** | Verification script for OBS WebSocket connectivity and authentication. | `obswebsocket`, `psutil` |
+| `test_obs_connection.py` | ✅ **Complete** | Verification script for OBS WebSocket connectivity and authentication. | `obs-websocket-py`, `psutil` |
 | `src/steam_config_manager.py` | ✅ **Complete** | Method 3 Auto-VAC Shield: direct `cs2.exe` boot + `localconfig.vdf` scrubbing. | `subprocess`, `psutil`, `winreg` |
 | `src/cs2_controller.py` | ✅ **Complete** | TCP socket client for CS2 NetCon (`port 2121`), POV lock, and `suppress_demo_ui()`. | `socket`, `time` |
-| `src/obs_controller.py` | ✅ **Complete** | OBS Studio controller for 1080p60 recording and mouse cursor suppression. | `obswebsocket` |
+| `src/obs_controller.py` | ✅ **Complete** | OBS Studio controller for 1080p60 recording and mouse cursor suppression. | `obs-websocket-py` |
 | `src/autocapture_engine.py` | ✅ **Complete** | Master coordinator loop automating CS2 playback and active HUD maintenance loop. | `CS2NetCon`, `OBSController` |
 | `src/clipper.py` | ✅ **Complete** | FFmpeg stream-copy clipper and asynchronous background task queue. | `subprocess`, `threading`, `queue` |
 | `test_steam_config_manager.py` | ✅ **Complete** | Unit test suite verifying VDF scrubbing and cs2.exe binary discovery. | `unittest` |
