@@ -65,14 +65,15 @@ Counter-Strike 2 supports a local TCP console interface when launched with the f
 
 We implemented the `CS2NetCon` class inside `src/cs2_controller.py` with the following core capabilities:
 
-#### 1. Process Management & Automatic Game Launching
-* **`is_cs2_running()`**: Checks `psutil` process list to see if `cs2.exe` is currently running.
-* **`launch_cs2_if_needed(wait_seconds=15)`**: If CS2 is not open, automatically launches it using the Steam protocol (`steam://run/730//-netconport 2121`) and waits for the game engine TCP port to open.
+#### 1. Process Management & Auto-VAC Shield (`src/steam_config_manager.py`)
+To prevent VAC risks from permanently modifying Steam's global `LaunchOptions` while ensuring reliable automation, Layer 5 uses a **Method 3 Hybrid Auto-VAC Shield**:
+* **Direct Binary Discovery (`cs2.exe`)**: `SteamConfigManager` queries the Windows Registry and parses `libraryfolders.vdf` across all hard drives (`C:\`, `D:\`, `E:\`) to locate `cs2.exe`. Spawns `cs2.exe -insecure -console -netconport 2121 -steam` directly via `subprocess.Popen`, completely avoiding persistent modifications to Steam's launch options box.
+* **Automatic `localconfig.vdf` Scrubbing (`clean_cs2_launch_options`)**: Whenever `CS2NetCon` disconnects or an application exits, `SteamConfigManager` automatically scans `userdata/<ID>/config/localconfig.vdf` and strips out any `-insecure`, `-console`, or `-netconport` flags while preserving user performance options (`-novid -high`).
 
-#### 2. Socket Connection & Command Execution
+#### 2. Socket Connection & Command Execution (`src/cs2_controller.py`)
 * **`connect(max_retries=5, retry_delay=2.0)`**: Opens `socket.SOCK_STREAM` to `127.0.0.1:2121` with retry logic.
-* **`disconnect()`**: Cleanly closes the TCP socket when recording finishes.
-* **`send_command(command, read_response=False)`**: Sends raw UTF-8 encoded console commands (`command + "\n"`).
+* **`disconnect()`**: Cleanly closes the TCP socket and triggers VDF launch option scrubbing.
+* **`send_command(command, read_response=False)`**: Sends raw UTF-8 encoded console commands (`command + "\n"`), handling socket shutdown errors gracefully without raising tracebacks.
 
 #### 3. Demo Playback & Navigation API
 * **`play_demo(demo_path)`**: Converts absolute paths to forward slashes and sends `playdemo "<path>"`.
@@ -80,21 +81,20 @@ We implemented the `CS2NetCon` class inside `src/cs2_controller.py` with the fol
 * **`pause_demo()` / `resume_demo()`**: Controls play/pause states (`demo_pause`, `demo_resume`).
 * **`set_timescale(scale=1.0)`**: Sets `demo_timescale <scale>` (`1.0` for real-time video capture, `10.0` for fast-forward).
 
-#### 4. Cinematic UI & HUD Configuration (`setup_cinematic_hud`)
+#### 4. Cinematic UI & Continuous Demo UI Scrubber Suppression (`setup_cinematic_hud` & `suppress_demo_ui`)
 To ensure clean, esports-grade video highlights without visual clutter, `setup_cinematic_hud(player_name)` sends the following exact command sequence right before recording starts:
 
 ```python
 commands = [
     "sv_cheats 1",                   # Required for offline demo UI adjustments
-    "cl_draw_only_deathnotices 1",   # Hides radar, inventory, health bars; keeps ONLY top-right killfeed
+    "cl_draw_only_deathnotices 0",   # Keeps player profile, ammo, health, weapon & avatars VISIBLE
+    "cl_drawhud 1",                  # Ensures HUD panels are enabled
     "spec_show_xray 0",              # Disables X-Ray wallhacks for an authentic live-gameplay feel
-    "r_show_demo_ui 0",              # Hides the bottom demo scrubber menu bar (Shift + F2 UI)
     "demo_timescale 1.0",            # Guarantees exact 1.0x playback speed
 ]
-if player_name:
-    commands.append("spec_mode 1")                         # Locks to 1st-person camera
-    commands.append(f'spec_player_by_name "{player_name}"') # Locks view directly to target player
 ```
+* **`suppress_demo_ui()`**: Counter-Strike 2's Panorama UI occasionally re-displays the bottom brown demo timeline scrubber bar (`Replay UI`) when teleports or kills trigger spectator updates. `suppress_demo_ui()` sends the complete battery of closing commands (`demoui_close`, `demoui false`, `demoui 0`, `demo_ui_mode 0`, `r_show_demo_ui 0`, `cl_spec_show_bindings 0`).
+* **`lock_camera_to_player(player_name)`**: Pulses `spec_player` across 6 iterations while invoking `suppress_demo_ui()` on every pulse to ensure exact POV lock without opening the replay timeline.
 * **`restore_normal_hud()`**: Sends `cl_draw_only_deathnotices 0`, `spec_show_xray 1`, `r_show_demo_ui 1` to restore standard spectator UI once recording concludes.
 
 ### Step 3: OBS Studio Controller (`src/obs_controller.py`)
@@ -103,30 +103,28 @@ To control video recording precisely when CS2 demo playback reaches a highlight 
 
 #### Core Methods & Capabilities:
 * **`connect(max_retries=3)`**: Connects via WebSocket to OBS Studio and retrieves version info (`requests.GetVersion()`).
-* **`get_record_status()`**: Calls `requests.GetRecordStatus()` to check `{"is_recording": bool, "is_paused": bool, "timecode": str}`.
-* **`get_record_directory()`**: Calls `requests.GetRecordDirectory()` to find the absolute path where OBS saves video output (e.g., `C:\Users\snoop\Videos`).
-* **`start_recording()`**: Sends `requests.StartRecord()` and verifies that `output_active` becomes `True`.
-* **`stop_recording(wait_for_file_flush=True, timeout=10.0)`**:
-  Commands OBS to `StopRecord()`. If `wait_for_file_flush` is enabled, polls OBS status until `output_active` turns `False` and allows a 1-second filesystem release window. This prevents `PermissionError` when moving or renaming the file immediately after recording stops.
-* **`find_latest_recording(extensions=('mp4', 'mkv', 'mov'))`**: Scans `get_record_directory()` using `glob` and `os.path.getmtime` to automatically locate the exact `.mp4` video file just produced by OBS Studio so the automated loop can rename it cleanly.
+* **`set_1080p_60fps()`**: Programmatically forces OBS base and output resolution to `1920x1080` at `60 FPS`.
+* **`disable_mouse_cursor_capture()`**: Right before recording starts, scans all inputs inside your OBS Studio scene (`Game Capture`, `Display Capture`, `Window Capture`) via WebSocket (`SetInputSettings`) and sets `capture_cursor = False`. Your Windows mouse pointer will never accidentally appear or ruin a recorded highlight clip!
+* **`get_record_status()` / `get_record_directory()`**: Checks active recording states and retrieves video output folders.
+* **`start_recording()` / `stop_recording()`**: Controls OBS video capture, polling `output_active` with a file-flush buffer window to prevent `PermissionError` when moving files.
+* **`find_latest_recording()`**: Automatically locates the exact `.mp4` video file just produced by OBS Studio.
 
 ### Step 4: Master Automated Loop (`src/autocapture_engine.py`)
 
 To synchronize Counter-Strike 2 demo playback (`CS2NetCon` on port 2121) and OBS Studio screen capture (`OBSController` on port 4455) into a single, fully automated pipeline, we built the `AutoCaptureEngine` class inside `src/autocapture_engine.py`.
 
 #### Core Methods & Lifecycle:
-* **`connect_all(launch_cs2_if_closed=True)`**: Connects to both OBS WebSocket and CS2 NetCon TCP. If `launch_cs2_if_closed` is active and `cs2.exe` is closed, automatically boots the game via Steam and waits for the socket to accept connections.
-* **`disconnect_all()`**: Safely closes both controller connections upon batch completion.
-* **`capture_highlight(demo_path, candidate, match_title, clip_index, warmup_ticks=64, cooldown_ticks=128)`**:
-  Executes the precise, synchronized recording workflow for a single candidate highlight (supports both `CandidateMoment` dataclasses and dictionaries):
-  1. **Demo Load Check**: If `demo_path` differs from `current_loaded_demo`, issues `playdemo "<path>"` and allows a 6-second Source 2 entity loading window.
-  2. **Warmup Teleport**: Calculates `actual_start = max(0, start_tick - warmup_ticks)` (default 1.0s buffer) to ensure models and textures are rendered before recording. Issues `demo_goto <actual_start>` and `demo_pause`.
-  3. **Cinematic HUD**: Invokes `setup_cinematic_hud(player_name)` (`cl_draw_only_deathnotices 1`, `spec_show_xray 0`, 1st-person camera lock).
-  4. **Camera Trigger**: Issues `self.obs.start_recording()`.
-  5. **Playback**: Issues `self.cs2.resume_demo()` at normal 1.0x speed and sleeps for exact clip duration $D = (actual\_end - actual\_start) / 64.0$.
-  6. **Finalize & Sanitize**: Pauses CS2, issues `self.obs.stop_recording(wait_for_file_flush=True)`, locates the freshly generated raw clip via `find_latest_recording()`, and renames/moves it to `clips/{match_title}_Clip_{index:02d}_{safe_description}.mp4` (handling file collisions automatically by appending UNIX timestamps).
-* **`capture_playlist(demo_path, candidates, match_title, progress_callback=None)`**:
-  Iterates over a ranked list of candidate moments (`Layer 3 / 4`), capturing each highlight sequentially. Triggers `progress_callback(idx, total, clip_path)` after each clip for real-time frontend dashboard progress bars (`Layer 6`), and guarantees `restore_normal_hud()` is called upon batch conclusion.
+* **`connect_all(launch_cs2_if_closed=True)`**: Connects to both OBS WebSocket and CS2 NetCon TCP. If `cs2.exe` is closed, spawns the game directly via `SteamConfigManager` (`cs2.exe -insecure -console -netconport 2121 -steam`).
+* **`disconnect_all()`**: Safely closes both controller connections upon batch completion and triggers `localconfig.vdf` launch option scrubbing.
+* **`capture_highlight(...)`**:
+  Executes the precise, synchronized recording workflow for a single candidate highlight:
+  1. **Demo Load Check**: Issues `playdemo "<path>"` and allows a 6-second Source 2 entity loading window.
+  2. **Warmup Teleport**: Issues `demo_goto <actual_start>` with a 1.0s buffer and pauses.
+  3. **Cinematic HUD**: Invokes `setup_cinematic_hud(player_name)` (`cl_draw_only_deathnotices 0`, `spec_show_xray 0`, 1st-person camera lock).
+  4. **Camera Trigger**: Issues `self.obs.start_recording()` (with resolution and cursor capture enforcement).
+  5. **Continuous Maintenance Loop**: Issues `self.cs2.resume_demo()` at normal 1.0x speed. While the clip rolls for `duration_sec`, Python loops every **1.5 seconds** and invokes `self.cs2.suppress_demo_ui()` (`demoui_close`, `demoui false`) to guarantee the bottom replay timeline bar stays permanently hidden.
+  6. **Finalize & Sanitize**: Pauses CS2, issues `self.obs.stop_recording()`, and moves the sanitized clip to `clips/{match_title}_Clip_{index:02d}_{safe_description}.mp4`.
+* **`capture_playlist(...)`**: Iterates over a ranked list of candidate moments, reporting real-time progress to callbacks while ensuring graceful HUD cleanup and VAC scrubbing upon completion.
 
 ---
 
@@ -140,7 +138,7 @@ For users who have an existing match recording (`match.mp4`) generated manually 
 Translates CS2 demo ticks (`start_tick`, `end_tick`) into exact video timestamps in seconds (`start_sec`, `end_sec`) using Round 1 anchor calibration:
 * **`__init__(round_1_start_tick, round_1_video_time_sec, tick_rate=64.0)`**: Calculates the tick offset $T_{\text{offset}} = T_{\text{round\_1\_start}} - \text{int}(V_{\text{round\_1\_start}} \times 64.0)$.
 * **`tick_to_seconds(tick)`**: Converts any game tick $T$ into video timestamp $V = \max(0, \frac{T - T_{\text{offset}}}{64.0})$.
-* **`moment_to_video_range(start_tick, end_tick, warmup_sec=1.5, cooldown_sec=2.0)`**: Returns padded `(start_sec, end_sec)` window adjusted for video lead-in and clutch aftermath.
+* **`moment_to_video_range(...)`**: Returns padded `(start_sec, end_sec)` window adjusted for video lead-in and clutch aftermath.
 
 #### 2. `slice_clip_ffmpeg(video_path, start_sec, end_sec, output_path, use_stream_copy=True)`
 Extracts a video slice via subprocess `ffmpeg`:
@@ -159,8 +157,10 @@ Asynchronous background worker queue (`threading.Thread` + `queue.Queue`) design
 | File | Status | Purpose | Key Dependencies |
 | :--- | :---: | :--- | :--- |
 | `test_obs_connection.py` | ✅ **Complete** | Verification script for OBS WebSocket connectivity and authentication. | `obswebsocket`, `psutil` |
-| `src/cs2_controller.py` | ✅ **Complete** | TCP socket client for CS2 NetCon (`port 2121`) + cinematic HUD commands. | `socket`, `time` |
-| `src/obs_controller.py` | ✅ **Complete** | OBS Studio controller for starting/stopping recordings and checking paths. | `obswebsocket` |
-| `src/autocapture_engine.py` | ✅ **Complete** | Master coordinator loop automating CS2 playback and OBS capture. | `CS2NetCon`, `OBSController` |
+| `src/steam_config_manager.py` | ✅ **Complete** | Method 3 Auto-VAC Shield: direct `cs2.exe` boot + `localconfig.vdf` scrubbing. | `subprocess`, `psutil`, `winreg` |
+| `src/cs2_controller.py` | ✅ **Complete** | TCP socket client for CS2 NetCon (`port 2121`), POV lock, and `suppress_demo_ui()`. | `socket`, `time` |
+| `src/obs_controller.py` | ✅ **Complete** | OBS Studio controller for 1080p60 recording and mouse cursor suppression. | `obswebsocket` |
+| `src/autocapture_engine.py` | ✅ **Complete** | Master coordinator loop automating CS2 playback and active HUD maintenance loop. | `CS2NetCon`, `OBSController` |
 | `src/clipper.py` | ✅ **Complete** | FFmpeg stream-copy clipper and asynchronous background task queue. | `subprocess`, `threading`, `queue` |
+| `test_steam_config_manager.py` | ✅ **Complete** | Unit test suite verifying VDF scrubbing and cs2.exe binary discovery. | `unittest` |
 | `test_layer_5.py` | ✅ **Complete** | Comprehensive unit test suite verifying anchor calibration, duck-typing, and queue lifecycle. | `unittest` |
