@@ -182,13 +182,20 @@ class AutoCaptureEngine:
         # Enforce 1st-person POV lock on target player and force close bottom demo timeline playbar
         if player_name:
             self.cs2.lock_camera_to_player(player_name)
-        self.cs2.send_command("demoui false")                # Force hide demo UI (exact command)
-        self.cs2.send_command("demo_ui_mode 0")              # Fallback hide playbar
+        self.cs2.suppress_demo_ui()
         self.cs2.send_command("cl_draw_only_deathnotices 0") # Keep player profile visible
         self.cs2.send_command("cl_drawhud 1")                # Ensure HUD is enabled
 
-        # Sleep for exact clip duration
-        time.sleep(duration_sec - 0.4)
+        # Active maintenance loop during recording: continuously suppress Demo UI playbar every 1.5 seconds
+        elapsed = 0.0
+        loop_interval = 1.5
+        remaining_duration = max(0.0, duration_sec - 0.4)
+        while elapsed < remaining_duration:
+            sleep_time = min(loop_interval, remaining_duration - elapsed)
+            time.sleep(sleep_time)
+            elapsed += sleep_time
+            if elapsed < remaining_duration:
+                self.cs2.suppress_demo_ui()
 
         # 7. Stop Recording & Pause Demo
         print("[AutoCaptureEngine] Highlight finished! Stopping OBS camera...")

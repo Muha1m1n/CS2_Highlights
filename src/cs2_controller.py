@@ -239,11 +239,6 @@ class CS2NetCon:
             "cl_draw_only_deathnotices 0",   # 0 = Keeps player profile, ammo, health, weapon & avatars VISIBLE
             "cl_drawhud 1",                  # Ensure HUD panels are enabled
             "spec_show_xray 0",              # Disables X-Ray player outlines through walls for authentic feel
-            "demoui false",                  # Hides demo timeline UI (user requested exact command)
-            "demoui 0",                      # Fallback format
-            "demo_ui_mode 0",                # Source 2 timeline playbar hide command
-            "r_show_demo_ui 0",              # Legacy hide command
-            "cl_spec_show_bindings 0",       # Hides "[G]: Enable Mouse... [SPACE]: Next Camera" hints
             "demo_timescale 1.0",            # Ensure normal speed
         ]
         
@@ -254,13 +249,30 @@ class CS2NetCon:
         
         for cmd in commands:
             self.send_command(cmd)
+        self.suppress_demo_ui()
+
+    def suppress_demo_ui(self):
+        """
+        Forces the bottom replay timeline scrubber bar (`Demo UI`) and spectator
+        keybinding hints to close/hide across all Source 2 UI modes without toggling open.
+        """
+        commands = [
+            "demoui_close",                  # Panorama explicit close command
+            "demoui false",                  # User requested exact command
+            "demoui 0",                      # Boolean zero format
+            "demo_ui_mode 0",                # Source 2 timeline mode
+            "r_show_demo_ui 0",              # Legacy render command
+            "cl_spec_show_bindings 0",       # Hide "[G]: Enable Mouse..." hint bar
+        ]
+        for cmd in commands:
+            self.send_command(cmd)
 
     def lock_camera_to_player(self, player_name: str):
         """
         Locks spectator camera directly into `player_name`'s First-Person (In-Eye / POV) view.
         Sends Source 2 `spec_player` across 6 pulses while ticking to ensure exact POV lock.
-        Also sends `demoui false` on every pulse to ensure any tick jump or camera switch
-        does not pop open the bottom demo playback scrubber bar (`Demo UI`).
+        Also invokes `suppress_demo_ui()` on every pulse so any tick jump or camera switch
+        cannot pop open the bottom demo playback scrubber bar (`Demo UI`).
         """
         if not player_name:
             return
@@ -269,11 +281,7 @@ class CS2NetCon:
             self.send_command("spec_mode 1")                         # First person POV
             self.send_command(f'spec_player "{player_name}"')        # Lock view with quotes
             self.send_command(f"spec_player {player_name}")          # Lock view without quotes
-            self.send_command("demoui false")                        # Exact user command to hide demo UI
-            self.send_command("demoui 0")                            # Fallback demo UI toggle off
-            self.send_command("demo_ui_mode 0")                      # Source 2 timeline playbar hide command
-            self.send_command("r_show_demo_ui 0")                    # Legacy hide command
-            self.send_command("cl_spec_show_bindings 0")             # Hide spectator keybinding hints
+            self.suppress_demo_ui()
             self.send_command("spec_mode 1")                         # Re-assert first person after slot/name selection
             time.sleep(0.3)
 
