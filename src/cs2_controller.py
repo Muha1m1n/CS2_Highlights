@@ -155,7 +155,27 @@ class CS2NetCon:
                     user32.ShowWindow(hwnd, 5)
                 
                 user32.SetForegroundWindow(hwnd)
-                print("[CS2NetCon SUCCESS] Automatically brought Counter-Strike 2 window to foreground!")
+                time.sleep(0.2)
+                
+                # Auto-click inside the window to grant full Win32 input focus and eliminate DirectX FPS throttling
+                class RECT(ctypes.Structure):
+                    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+                rect = RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                center_x = (rect.left + rect.right) // 2
+                center_y = (rect.top + rect.bottom) // 2
+                
+                user32.SetCursorPos(center_x, center_y)
+                time.sleep(0.1)
+                MOUSEEVENTF_LEFTDOWN = 0x0002
+                MOUSEEVENTF_LEFTUP = 0x0004
+                user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+                time.sleep(0.05)
+                user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+                
+                # Park mouse pointer out of sight at bottom-right corner of the window
+                user32.SetCursorPos(max(0, rect.right - 10), max(0, rect.bottom - 10))
+                print("[CS2NetCon SUCCESS] Automatically brought Counter-Strike 2 window to foreground and clicked to unlock full FPS!")
                 return True
             else:
                 print("[CS2NetCon WARNING] Could not locate `Counter-Strike 2` window handle (`hwnd`).")
@@ -311,24 +331,28 @@ class CS2NetCon:
 
     def suppress_demo_ui(self):
         """
-        Per exact user command: exclusively sends `cl_draw_only_deathnotices 1` without any
-        additional demoui or UI commands.
+        Option A (Killfeed + One-time demoui Toggle):
+        Executes `cl_draw_only_deathnotices 1` & `spec_show_xray 0` to hide radar/ammo/health/xray while leaving ONLY the killfeed,
+        then sends `demoui` exactly once right when called to toggle closed the bottom demo timeline bar.
         """
         self.send_command("cl_draw_only_deathnotices 1")
+        self.send_command("spec_show_xray 0")
+        self.send_command("demoui")
 
     def lock_camera_to_player(self, player_name: str):
         """
         Locks spectator camera directly into `player_name`'s First-Person (In-Eye / POV) view.
-        Sends Source 2 `spec_player` alongside `cl_draw_only_deathnotices 1`.
+        Sends Source 2 `spec_player` alongside `cl_draw_only_deathnotices 1` and `spec_show_xray 0`.
         """
         if not player_name:
             return
-        print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (enforcing cl_draw_only_deathnotices 1)...")
+        print(f"[CS2NetCon] Locking camera to 1st-person POV for player: {player_name} (enforcing cl_draw_only_deathnotices 1 & no X-Ray)...")
         for _ in range(6):
             self.send_command("spec_mode 1")                         # First person POV
             self.send_command(f'spec_player "{player_name}"')        # Lock view with quotes
             self.send_command(f"spec_player {player_name}")          # Lock view without quotes
             self.send_command("cl_draw_only_deathnotices 1")         # Disable HUD alongside player lock
+            self.send_command("spec_show_xray 0")                    # Turn off X-Ray mode
             self.send_command("spec_mode 1")                         # Re-assert first person after slot/name selection
             time.sleep(0.3)
 

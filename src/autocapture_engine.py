@@ -114,6 +114,20 @@ class AutoCaptureEngine:
             return item.get(attr_name, default)
         return getattr(item, attr_name, default)
 
+    def _set_mouse_lock(self, locked: bool):
+        """
+        Locks hardware mouse input via Windows BlockInput and parks cursor at bottom-right corner.
+        Requires Administrator privileges for BlockInput; parking always succeeds.
+        """
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            user32.BlockInput(1 if locked else 0)
+            if locked:
+                user32.SetCursorPos(1920, 1080)
+        except Exception:
+            pass
+
     def capture_highlight(
         self,
         demo_path: str,
@@ -121,7 +135,7 @@ class AutoCaptureEngine:
         match_title: str = "Match",
         clip_index: int = 1,
         warmup_ticks: int = 64,   # 1.0s lead-in
-        cooldown_ticks: int = 128 # 2.0s cooldown
+        cooldown_ticks: int = 32 # 0.5s cooldown
     ) -> Optional[str]:
         """
         Records a single candidate highlight clip from a demo file.
@@ -132,7 +146,7 @@ class AutoCaptureEngine:
             match_title: Prefix name for the match (e.g. "Match730").
             clip_index: Ordering rank number (`Highlight_1`).
             warmup_ticks: Lead-in ticks before `start_tick` (default 64 = 1 second).
-            cooldown_ticks: Cooldown ticks after `end_tick` (default 128 = 2 seconds).
+            cooldown_ticks: Cooldown ticks after `end_tick` (default 32 = 0.5 seconds for instant cutoff).
             
         Returns:
             Absolute file path of the saved and renamed `.mp4` clip, or None if failed.
@@ -177,37 +191,39 @@ class AutoCaptureEngine:
         self.cs2.pause_demo()
         time.sleep(1.0)  # Allow Source 2 frame renderer to settle
 
-        # 4. Apply cinematic HUD settings & lock camera POV
-        self.cs2.setup_cinematic_hud(player_name=player_name if player_name else None)
-        time.sleep(0.5)
-
-        # 5. Enforce 1080p 60FPS, bring CS2 window to foreground, & Start OBS Recording
+        # 4. While demo is PAUSED at warmup tick: bring CS2 to foreground, Disable UI, and Find/Lock Player
         self.obs.set_1080p_60fps()
         self.cs2.focus_cs2_window()
         time.sleep(0.3)
+        
+        # Find/Lock Player right while paused
+        if player_name:
+            self.cs2.lock_camera_to_player(player_name)
+        
+        # Disable UI right while paused (Option A: close demo scrubber, disable X-Ray, keep only killfeed)
+        self.cs2.suppress_demo_ui()
+        self.cs2.send_command("cl_draw_only_deathnotices 1")
+        self.cs2.send_command("cl_drawhud 1")
+        self.cs2.send_command("spec_show_xray 0")
+        self.cs2.pause_demo()
+
+        print("[AutoCaptureEngine] Pausing demo for 1.5s after selecting player & hiding UI before starting recording...")
+        time.sleep(1.5) # Exact user request: wait 1.5 seconds while paused after player & UI prep
+
+        # 5. Now Start Recording (Frame #1 captures the clean, stable warmup tick before any gameplay occurs!)
         print("[AutoCaptureEngine] Rolling camera (Start OBS Recording)...")
         if not self.obs.start_recording():
             print("[AutoCaptureEngine ERROR] Failed to trigger OBS recording.")
             return None
 
-        # 6. Resume normal 1.0x playback
-        print(f"[AutoCaptureEngine] Resuming game playback for {duration_sec:.1f} seconds...")
-        self.cs2.resume_demo()
-        time.sleep(0.4)  # Allow Source 2 to render unpaused frames before switching camera
-
-        # Enforce 1st-person POV lock on target player
-        if player_name:
-            self.cs2.lock_camera_to_player(player_name)
-        
-        # Apply strict non-toggling close right right after camera lock right when playback starts
-        self.cs2.suppress_demo_ui()
-        self.cs2.send_command("cl_draw_only_deathnotices 1") # Hide all UI, radar, and demo scrubber bar, leaving ONLY killfeed
-        self.cs2.send_command("cl_drawhud 1")                # Ensure HUD killfeed panel is enabled
-
-        # Let game play peacefully without repetitive UI commands during the recording
-        remaining_duration = max(0.0, duration_sec - 0.4)
-        print(f"[AutoCaptureEngine] Recording {remaining_duration:.1f} seconds of clean gameplay...")
-        time.sleep(remaining_duration)
+        self._set_mouse_lock(True)
+        try:
+            # 6. Now Resume Demo & record the clean highlight without missing any action
+            print(f"[AutoCaptureEngine] Resuming game playback for {duration_sec:.1f} seconds (mouse input disabled)...")
+            self.cs2.resume_demo()
+            time.sleep(duration_sec)
+        finally:
+            self._set_mouse_lock(False)
 
         # 7. Stop Recording & Pause Demo
         print("[AutoCaptureEngine] Highlight finished! Stopping OBS camera...")
@@ -351,11 +367,16 @@ if __name__ == "__main__":
             SELECT round_number, min(tick), max(tick), count(*) as kills
             FROM kills WHERE attacker_name LIKE ? GROUP BY round_number ORDER BY kills DESC LIMIT 1
         """, (f"%{args.player}%",)).fetchone()
-        conn.close()
         if row:
+            # Exact user request: stop instantly when kills complete or player dies
+            death_row = c.execute("SELECT min(tick) FROM kills WHERE user_name LIKE ? AND round_number = ?", (f"%{args.player}%", row[0])).fetchone()
+            final_tick = row[2]
+            if death_row and death_row[0]:
+                final_tick = min(final_tick, death_row[0] + 16) # Include death tick plus 16 ticks (~0.25s) for instant cut
+            conn.close()
             player_cands = [{
                 "start_tick": row[1] - 64,
-                "end_tick": row[2] + 128,
+                "end_tick": final_tick + 32, # Stop instantly after final kill or death!
                 "player_name": args.player,
                 "description": f"{args.player} Round {row[0]} ({row[3]} Kills High Score)",
                 "round_num": row[0]
